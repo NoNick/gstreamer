@@ -523,7 +523,7 @@ gst_funnel_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
       GST_PAD_STREAM_LOCK (funnel->srcpad);
     }
 
-    if ((funnel->last_sinkpad == NULL) || (funnel->forward_sticky_events
+    if ((funnel->last_sinkpad == NULL) || (funnel->forward_sticky_events_mode
             && (funnel->last_sinkpad != pad))) {
       gst_object_replace ((GstObject **) & funnel->last_sinkpad,
           GST_OBJECT (pad));

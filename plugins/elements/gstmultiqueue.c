@@ -774,18 +774,14 @@ gst_multi_queue_set_property (GObject * object, guint prop_id,
       recheck_buffering_status (mq);
       break;
     case PROP_LOW_PERCENT:
-      mq->low_percent = g_value_get_int (value);
-      /* Recheck buffering status - the new low-percent value might
-       * be above the current fill level. If the old low-percent one
-       /* Recheck buffering status - the new low_watermark value might
+      mq->low_watermark = g_value_get_int (value) * BUF_LEVEL_PERCENT_FACTOR;
+      /* Recheck buffering status - the new low_watermark value might
        * be above the current fill level. If the old low_watermark one
        * was below the current level, this means that mq->buffering is
        * disabled and needs to be re-enabled. */
-      mq->low_watermark = g_value_get_int (value) * BUF_LEVEL_PERCENT_FACTOR;
       recheck_buffering_status (mq);
       break;
     case PROP_HIGH_PERCENT:
-      mq->high_percent = g_value_get_int (value);
       mq->high_watermark = g_value_get_int (value) * BUF_LEVEL_PERCENT_FACTOR;
       recheck_buffering_status (mq);
       break;
@@ -1263,8 +1259,6 @@ recheck_buffering_status (GstMultiQueue * mq)
 
     GST_MULTI_QUEUE_MUTEX_LOCK (mq);
 
-    /* force fill level percentage to be recalculated */
-    mq->percent = 0;
     /* force buffering percentage to be recalculated */
     old_perc = mq->buffering_percent;
     mq->buffering_percent = 0;

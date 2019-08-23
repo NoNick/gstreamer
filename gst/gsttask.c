@@ -172,7 +172,7 @@ static gboolean start_task (GstTask * task);
 
 G_DEFINE_TYPE_WITH_CODE (GstTask, gst_task, GST_TYPE_OBJECT, _do_init);
 
-static void
+/*static void
 init_klass_pool (GstTaskClass * klass)
 {
   g_mutex_lock (&pool_lock);
@@ -181,11 +181,11 @@ init_klass_pool (GstTaskClass * klass)
     gst_object_unref (klass->pool);
   }
   klass->pool = gst_task_pool_new ();
-  /* Classes are never destroyed so this ref will never be dropped */
+  // Classes are never destroyed so this ref will never be dropped 
   GST_OBJECT_FLAG_SET (klass->pool, GST_OBJECT_FLAG_MAY_BE_LEAKED);
   gst_task_pool_prepare (klass->pool, NULL);
   g_mutex_unlock (&pool_lock);
-}
+}*/
 
 static void
 gst_task_class_init (GstTaskClass * klass)
@@ -222,8 +222,6 @@ gst_task_init (GstTask * task)
 
   /* clear floating flag */
   gst_object_ref_sink (task);
-
-  g_mutex_unlock (&pool_lock);
 }
 
 static void
