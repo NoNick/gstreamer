@@ -57,6 +57,7 @@
 #include <gst/gsttypefind.h>
 #include <gst/gsttypefindfactory.h>
 #include <gst/gstdeviceproviderfactory.h>
+#include <gst/gstdynamictypefactory.h>
 #include <gst/gsturi.h>
 #include <gst/gstinfo.h>
 #include <gst/gstenumtypes.h>
@@ -335,7 +336,7 @@ gst_registry_binary_initialize_magic (GstBinaryRegistryMagic * m)
 {
   memset (m, 0, sizeof (GstBinaryRegistryMagic));
 
-  if (!strncpy (m->magic, GST_MAGIC_BINARY_REGISTRY_STR,
+  if (!memcpy (m->magic, GST_MAGIC_BINARY_REGISTRY_STR,
           GST_MAGIC_BINARY_REGISTRY_LEN)
       || !strncpy (m->version, GST_MAGIC_BINARY_VERSION_STR,
           GST_MAGIC_BINARY_VERSION_LEN)) {
@@ -527,6 +528,7 @@ priv_gst_registry_binary_read_cache (GstRegistry * registry,
   GST_TYPE_ELEMENT_FACTORY;
   GST_TYPE_TYPE_FIND_FACTORY;
   GST_TYPE_DEVICE_PROVIDER_FACTORY;
+  GST_TYPE_DYNAMIC_TYPE_FACTORY;
 
 #ifndef GST_DISABLE_GST_DEBUG
   timer = g_timer_new ();

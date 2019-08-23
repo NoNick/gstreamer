@@ -19,9 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 
-/**
- * SECTION:gsttracerutils
- * @short_description: Tracing subsystem
+/* Tracing subsystem:
  *
  * The tracing subsystem provides hooks in the core library and API for modules
  * to attach to them.
@@ -55,7 +53,10 @@ static const gchar *_quark_strings[] = {
   "element-new", "element-add-pad", "element-remove-pad",
   "bin-add-pre", "bin-add-post", "bin-remove-pre", "bin-remove-post",
   "pad-link-pre", "pad-link-post", "pad-unlink-pre", "pad-unlink-post",
-  "element-change-state-pre", "element-change-state-post"
+  "element-change-state-pre", "element-change-state-post",
+  "mini-object-created", "mini-object-destroyed", "object-created",
+  "object-destroyed", "mini-object-reffed", "mini-object-unreffed",
+  "object-reffed", "object-unreffed",
 };
 
 GQuark _priv_gst_tracer_quark_table[GST_TRACER_QUARK_MAX];
@@ -113,12 +114,18 @@ _priv_gst_tracing_init (void)
       if ((feature = gst_registry_lookup_feature (registry, t[i]))) {
         factory = GST_TRACER_FACTORY (gst_plugin_feature_load (feature));
         if (factory) {
+          GstTracer *tracer;
+
           GST_INFO_OBJECT (factory, "creating tracer: type-id=%u",
               (guint) factory->type);
 
+          tracer = g_object_new (factory->type, "params", params, NULL);
+
+          /* Clear floating flag */
+          gst_object_ref_sink (tracer);
+
           /* tracers register them self to the hooks */
-          gst_object_unref (g_object_new (factory->type, "params", params,
-                  NULL));
+          gst_object_unref (tracer);
         } else {
           GST_WARNING_OBJECT (feature,
               "loading plugin containing feature %s failed!", t[i]);
@@ -187,6 +194,14 @@ gst_tracing_register_hook (GstTracer * tracer, const gchar * detail,
     GCallback func)
 {
   gst_tracing_register_hook_id (tracer, g_quark_try_string (detail), func);
+}
+
+#else /* !GST_DISABLE_GST_TRACER_HOOKS */
+
+void
+gst_tracing_register_hook (GstTracer * tracer, const gchar * detail,
+    GCallback func)
+{
 }
 
 #endif /* GST_DISABLE_GST_TRACER_HOOKS */

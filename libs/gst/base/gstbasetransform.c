@@ -23,6 +23,7 @@
 
 /**
  * SECTION:gstbasetransform
+ * @title: GstBaseTransform
  * @short_description: Base class for simple transform filters
  * @see_also: #GstBaseSrc, #GstBaseSink
  *
@@ -36,172 +37,100 @@
  * for more concrete use cases.
  *
  * It provides for:
- * <itemizedlist>
- *   <listitem><para>one sinkpad and one srcpad</para></listitem>
- *   <listitem><para>
- *      Possible formats on sink and source pad implemented
- *      with custom transform_caps function. By default uses
- *      same format on sink and source.
- *   </para></listitem>
- *   <listitem><para>Handles state changes</para></listitem>
- *   <listitem><para>Does flushing</para></listitem>
- *   <listitem><para>Push mode</para></listitem>
- *   <listitem><para>
- *       Pull mode if the sub-class transform can operate on arbitrary data
- *    </para></listitem>
- * </itemizedlist>
  *
- * <refsect2>
- * <title>Use Cases</title>
- * <para>
- * <orderedlist>
- * <listitem>
- *   <itemizedlist><title>Passthrough mode</title>
- *   <listitem><para>
- *     Element has no interest in modifying the buffer. It may want to inspect it,
+ * * one sinkpad and one srcpad
+ * * Possible formats on sink and source pad implemented
+ *   with custom transform_caps function. By default uses
+ *   same format on sink and source.
+ *
+ * * Handles state changes
+ * * Does flushing
+ * * Push mode
+ * * Pull mode if the sub-class transform can operate on arbitrary data
+ *
+ * # Use Cases
+ *
+ * ## Passthrough mode
+ *
+ *   * Element has no interest in modifying the buffer. It may want to inspect it,
  *     in which case the element should have a transform_ip function. If there
  *     is no transform_ip function in passthrough mode, the buffer is pushed
  *     intact.
- *   </para></listitem>
- *   <listitem><para>
- *     The #GstBaseTransformClass.passthrough_on_same_caps variable
+ *
+ *   * The #GstBaseTransformClass.passthrough_on_same_caps variable
  *     will automatically set/unset passthrough based on whether the
  *     element negotiates the same caps on both pads.
- *   </para></listitem>
- *   <listitem><para>
- *     #GstBaseTransformClass.passthrough_on_same_caps on an element that
+ *
+ *   * #GstBaseTransformClass.passthrough_on_same_caps on an element that
  *     doesn't implement a transform_caps function is useful for elements that
  *     only inspect data (such as level)
- *   </para></listitem>
- *   </itemizedlist>
- *   <itemizedlist>
- *   <title>Example elements</title>
- *     <listitem>Level</listitem>
- *     <listitem>Videoscale, audioconvert, videoconvert, audioresample in
- *     certain modes.</listitem>
- *   </itemizedlist>
- * </listitem>
- * <listitem>
- *   <itemizedlist>
- *     <title>Modifications in-place - input buffer and output buffer are the
- *     same thing.</title>
- *   <listitem><para>
- *     The element must implement a transform_ip function.
- *   </para></listitem>
- *   <listitem><para>
- *     Output buffer size must <= input buffer size
- *   </para></listitem>
- *   <listitem><para>
- *     If the always_in_place flag is set, non-writable buffers will be copied
- *     and passed to the transform_ip function, otherwise a new buffer will be
- *     created and the transform function called.
- *   </para></listitem>
- *   <listitem><para>
- *     Incoming writable buffers will be passed to the transform_ip function
- *     immediately.  </para></listitem>
- *   <listitem><para>
- *     only implementing transform_ip and not transform implies always_in_place
- *     = %TRUE
- *   </para></listitem>
- *   </itemizedlist>
- *   <itemizedlist>
- *   <title>Example elements</title>
- *     <listitem>Volume</listitem>
- *     <listitem>Audioconvert in certain modes (signed/unsigned
- *     conversion)</listitem>
- *     <listitem>videoconvert in certain modes (endianness
- *     swapping)</listitem>
- *   </itemizedlist>
- *  </listitem>
- * <listitem>
- *   <itemizedlist>
- *   <title>Modifications only to the caps/metadata of a buffer</title>
- *   <listitem><para>
- *     The element does not require writable data, but non-writable buffers
- *     should be subbuffered so that the meta-information can be replaced.
- *   </para></listitem>
- *   <listitem><para>
- *     Elements wishing to operate in this mode should replace the
- *     prepare_output_buffer method to create subbuffers of the input buffer
- *     and set always_in_place to %TRUE
- *   </para></listitem>
- *   </itemizedlist>
- *   <itemizedlist>
- *   <title>Example elements</title>
- *     <listitem>Capsfilter when setting caps on outgoing buffers that have
- *     none.</listitem>
- *     <listitem>identity when it is going to re-timestamp buffers by
- *     datarate.</listitem>
- *   </itemizedlist>
- * </listitem>
- * <listitem>
- *   <itemizedlist><title>Normal mode</title>
- *   <listitem><para>
- *     always_in_place flag is not set, or there is no transform_ip function
- *   </para></listitem>
- *   <listitem><para>
- *     Element will receive an input buffer and output buffer to operate on.
- *   </para></listitem>
- *   <listitem><para>
- *     Output buffer is allocated by calling the prepare_output_buffer function.
- *   </para></listitem>
- *   </itemizedlist>
- *   <itemizedlist>
- *   <title>Example elements</title>
- *     <listitem>Videoscale, videoconvert, audioconvert when doing
- *     scaling/conversions</listitem>
- *   </itemizedlist>
- * </listitem>
- * <listitem>
- *   <itemizedlist><title>Special output buffer allocations</title>
- *   <listitem><para>
- *     Elements which need to do special allocation of their output buffers
+ *
+ *   * Example elements
+ *
+ *     * Level
+ *     * Videoscale, audioconvert, videoconvert, audioresample in certain modes.
+ *
+ * ## Modifications in-place - input buffer and output buffer are the same thing.
+ *
+ * * The element must implement a transform_ip function.
+ * * Output buffer size must <= input buffer size
+ * * If the always_in_place flag is set, non-writable buffers will be copied
+ *   and passed to the transform_ip function, otherwise a new buffer will be
+ *   created and the transform function called.
+ *
+ * * Incoming writable buffers will be passed to the transform_ip function
+ *   immediately.
+ * * only implementing transform_ip and not transform implies always_in_place = %TRUE
+ *
+ *   * Example elements:
+ *     * Volume
+ *     * Audioconvert in certain modes (signed/unsigned conversion)
+ *     * videoconvert in certain modes (endianness swapping)
+ *
+ * ## Modifications only to the caps/metadata of a buffer
+ *
+ * * The element does not require writable data, but non-writable buffers
+ *   should be subbuffered so that the meta-information can be replaced.
+ *
+ * * Elements wishing to operate in this mode should replace the
+ *   prepare_output_buffer method to create subbuffers of the input buffer
+ *   and set always_in_place to %TRUE
+ *
+ * * Example elements
+ *   * Capsfilter when setting caps on outgoing buffers that have
+ *     none.
+ *   * identity when it is going to re-timestamp buffers by
+ *     datarate.
+ *
+ * ## Normal mode
+ *   * always_in_place flag is not set, or there is no transform_ip function
+ *   * Element will receive an input buffer and output buffer to operate on.
+ *   * Output buffer is allocated by calling the prepare_output_buffer function.
+ *   * Example elements:
+ *     * Videoscale, videoconvert, audioconvert when doing
+ *     scaling/conversions
+ *
+ * ## Special output buffer allocations
+ *   * Elements which need to do special allocation of their output buffers
  *     beyond allocating output buffers via the negotiated allocator or
  *     buffer pool should implement the prepare_output_buffer method.
- *   </para></listitem>
- *   </itemizedlist>
- *   <itemizedlist>
- *   <title>Example elements</title>
- *     <listitem>efence</listitem>
- *   </itemizedlist>
- * </listitem>
- * </orderedlist>
- * </para>
- * </refsect2>
- * <refsect2>
- * <title>Sub-class settable flags on GstBaseTransform</title>
- * <para>
- * <itemizedlist>
- * <listitem><para>
- *   <itemizedlist><title>passthrough</title>
- *     <listitem><para>
- *       Implies that in the current configuration, the sub-class is not
- *       interested in modifying the buffers.
- *     </para></listitem>
- *     <listitem><para>
- *       Elements which are always in passthrough mode whenever the same caps
- *       has been negotiated on both pads can set the class variable
- *       passthrough_on_same_caps to have this behaviour automatically.
- *     </para></listitem>
- *   </itemizedlist>
- * </para></listitem>
- * <listitem><para>
- *   <itemizedlist><title>always_in_place</title>
- *     <listitem><para>
- *       Determines whether a non-writable buffer will be copied before passing
- *       to the transform_ip function.
- *     </para></listitem>
- *     <listitem><para>
- *       Implied %TRUE if no transform function is implemented.
- *     </para></listitem>
- *     <listitem><para>
- *       Implied %FALSE if ONLY transform function is implemented.
- *     </para></listitem>
- *   </itemizedlist>
- * </para></listitem>
- * </itemizedlist>
- * </para>
- * </refsect2>
+ *
+ *   * Example elements:
+ *     * efence
+ *
+ * # Sub-class settable flags on GstBaseTransform
+ *
+ * * passthrough
+ *
+ *   * Implies that in the current configuration, the sub-class is not interested in modifying the buffers.
+ *   * Elements which are always in passthrough mode whenever the same caps has been negotiated on both pads can set the class variable passthrough_on_same_caps to have this behaviour automatically.
+ *
+ * * always_in_place
+ *   * Determines whether a non-writable buffer will be copied before passing
+ *     to the transform_ip function.
+ *
+ *   * Implied %TRUE if no transform function is implemented.
+ *   * Implied %FALSE if ONLY transform function is implemented.
  */
 
 #ifdef HAVE_CONFIG_H
@@ -679,7 +608,7 @@ gst_base_transform_transform_size (GstBaseTransform * trans,
 /* get the caps that can be handled by @pad. We perform:
  *
  *  - take the caps of peer of otherpad,
- *  - filter against the padtemplate of otherpad, 
+ *  - filter against the padtemplate of otherpad,
  *  - calculate all transforms of remaining caps
  *  - filter against template of @pad
  *
@@ -714,7 +643,7 @@ gst_base_transform_query_caps (GstBaseTransform * trans, GstPad * pad,
     GST_DEBUG_OBJECT (pad, "transformed  %" GST_PTR_FORMAT, peerfilter);
     gst_caps_unref (temp);
 
-    if (!gst_caps_is_empty (peerfilter)) {
+    if (peerfilter && !gst_caps_is_empty (peerfilter)) {
       /* and filter against the template of the other pad */
       GST_DEBUG_OBJECT (pad, "our template  %" GST_PTR_FORMAT, otempl);
       /* We keep the caps sorted like the returned caps */
@@ -960,6 +889,9 @@ gst_base_transform_default_decide_allocation (GstBaseTransform * trans,
   return TRUE;
 
 config_failed:
+  if (pool)
+    gst_object_unref (pool);
+
   GST_ELEMENT_ERROR (trans, RESOURCE, SETTINGS,
       ("Failed to configure the buffer pool"),
       ("Configuration is most likely invalid, please report this issue."));
@@ -1016,6 +948,15 @@ gst_base_transform_do_bufferpool (GstBaseTransform * trans, GstCaps * outcaps)
 
   if (!result)
     goto no_decide_allocation;
+
+  /* check again in case the sub-class have switch to passthrough/in-place
+   * after looking at the meta APIs */
+  if (priv->passthrough || priv->always_in_place) {
+    GST_DEBUG_OBJECT (trans, "no doing passthrough, delay bufferpool");
+    gst_base_transform_set_allocation (trans, NULL, NULL, NULL, NULL);
+    gst_query_unref (query);
+    return TRUE;
+  }
 
   /* we got configuration from our peer or the decide_allocation method,
    * parse them */
@@ -1479,6 +1420,10 @@ gst_base_transform_reconfigure (GstBaseTransform * trans)
   }
 
 done:
+
+  if (!ret)
+    gst_pad_mark_reconfigure (trans->srcpad);
+
   return ret;
 }
 
@@ -1615,7 +1560,7 @@ gst_base_transform_query (GstPad * pad, GstObject * parent, GstQuery * query)
   GstBaseTransformClass *bclass;
   gboolean ret = FALSE;
 
-  trans = GST_BASE_TRANSFORM (parent);
+  trans = GST_BASE_TRANSFORM_CAST (parent);
   bclass = GST_BASE_TRANSFORM_GET_CLASS (trans);
 
   if (bclass->query)
@@ -1776,10 +1721,15 @@ foreach_metadata (GstBuffer * inbuf, GstMeta ** meta, gpointer user_data)
    * function and when it returns %TRUE */
   if (do_copy) {
     GstMetaTransformCopy copy_data = { FALSE, 0, -1 };
-    GST_DEBUG_OBJECT (trans, "copy metadata %s", g_type_name (info->api));
     /* simply copy then */
-    info->transform_func (outbuf, *meta, inbuf,
-        _gst_meta_transform_copy, &copy_data);
+    if (info->transform_func) {
+      GST_DEBUG_OBJECT (trans, "copy metadata %s", g_type_name (info->api));
+      info->transform_func (outbuf, *meta, inbuf,
+          _gst_meta_transform_copy, &copy_data);
+    } else {
+      GST_DEBUG_OBJECT (trans, "couldn't copy metadata %s",
+          g_type_name (info->api));
+    }
   }
   return TRUE;
 }
@@ -1861,7 +1811,7 @@ gst_base_transform_get_unit_size (GstBaseTransform * trans, GstCaps * caps,
   bclass = GST_BASE_TRANSFORM_GET_CLASS (trans);
   res = bclass->get_unit_size (trans, caps, size);
   GST_DEBUG_OBJECT (trans,
-      "caps %" GST_PTR_FORMAT ") has unit size %" G_GSIZE_FORMAT ", res %s",
+      "caps %" GST_PTR_FORMAT " has unit size %" G_GSIZE_FORMAT ", res %s",
       caps, *size, res ? "TRUE" : "FALSE");
 
   if (res) {
@@ -1891,7 +1841,7 @@ gst_base_transform_sink_event (GstPad * pad, GstObject * parent,
   GstBaseTransformClass *bclass;
   gboolean ret = TRUE;
 
-  trans = GST_BASE_TRANSFORM (parent);
+  trans = GST_BASE_TRANSFORM_CAST (parent);
   bclass = GST_BASE_TRANSFORM_GET_CLASS (trans);
 
   if (bclass->sink_event)
@@ -1937,6 +1887,8 @@ gst_base_transform_sink_eventfunc (GstBaseTransform * trans, GstEvent * event)
       /* clear any pending reconfigure flag */
       gst_pad_check_reconfigure (trans->srcpad);
       ret = gst_base_transform_setcaps (trans, trans->sinkpad, caps);
+      if (!ret)
+        gst_pad_mark_reconfigure (trans->srcpad);
 
       forward = FALSE;
       break;
@@ -1970,7 +1922,7 @@ gst_base_transform_src_event (GstPad * pad, GstObject * parent,
   GstBaseTransformClass *bclass;
   gboolean ret = TRUE;
 
-  trans = GST_BASE_TRANSFORM (parent);
+  trans = GST_BASE_TRANSFORM_CAST (parent);
   bclass = GST_BASE_TRANSFORM_GET_CLASS (trans);
 
   if (bclass->src_event)
@@ -2217,7 +2169,7 @@ gst_base_transform_getrange (GstPad * pad, GstObject * parent, guint64 offset,
     guint length, GstBuffer ** buffer)
 {
   GstBaseTransformClass *klass = GST_BASE_TRANSFORM_GET_CLASS (parent);
-  GstBaseTransform *trans = GST_BASE_TRANSFORM (parent);
+  GstBaseTransform *trans = GST_BASE_TRANSFORM_CAST (parent);
   GstBaseTransformPrivate *priv = trans->priv;
   GstFlowReturn ret;
   GstBuffer *inbuf = NULL;
@@ -2294,7 +2246,7 @@ pull_error:
 static GstFlowReturn
 gst_base_transform_chain (GstPad * pad, GstObject * parent, GstBuffer * buffer)
 {
-  GstBaseTransform *trans = GST_BASE_TRANSFORM (parent);
+  GstBaseTransform *trans = GST_BASE_TRANSFORM_CAST (parent);
   GstBaseTransformClass *klass = GST_BASE_TRANSFORM_GET_CLASS (trans);
   GstBaseTransformPrivate *priv = trans->priv;
   GstFlowReturn ret;
@@ -2391,7 +2343,7 @@ gst_base_transform_set_property (GObject * object, guint prop_id,
 {
   GstBaseTransform *trans;
 
-  trans = GST_BASE_TRANSFORM (object);
+  trans = GST_BASE_TRANSFORM_CAST (object);
 
   switch (prop_id) {
     case PROP_QOS:
@@ -2409,7 +2361,7 @@ gst_base_transform_get_property (GObject * object, guint prop_id,
 {
   GstBaseTransform *trans;
 
-  trans = GST_BASE_TRANSFORM (object);
+  trans = GST_BASE_TRANSFORM_CAST (object);
 
   switch (prop_id) {
     case PROP_QOS:
@@ -2469,7 +2421,7 @@ gst_base_transform_activate (GstBaseTransform * trans, gboolean active)
     GST_PAD_STREAM_UNLOCK (trans->sinkpad);
 
     priv->have_same_caps = FALSE;
-    /* We can only reset the passthrough mode if the instance told us to 
+    /* We can only reset the passthrough mode if the instance told us to
        handle it in configure_caps */
     if (bclass->passthrough_on_same_caps) {
       gst_base_transform_set_passthrough (trans, FALSE);
@@ -2496,7 +2448,7 @@ gst_base_transform_sink_activate_mode (GstPad * pad, GstObject * parent,
   gboolean result = FALSE;
   GstBaseTransform *trans;
 
-  trans = GST_BASE_TRANSFORM (parent);
+  trans = GST_BASE_TRANSFORM_CAST (parent);
 
   switch (mode) {
     case GST_PAD_MODE_PUSH:
@@ -2522,7 +2474,7 @@ gst_base_transform_src_activate_mode (GstPad * pad, GstObject * parent,
   gboolean result = FALSE;
   GstBaseTransform *trans;
 
-  trans = GST_BASE_TRANSFORM (parent);
+  trans = GST_BASE_TRANSFORM_CAST (parent);
 
   switch (mode) {
     case GST_PAD_MODE_PULL:
@@ -2612,10 +2564,9 @@ gst_base_transform_is_passthrough (GstBaseTransform * trans)
  *
  * Determines whether a non-writable buffer will be copied before passing
  * to the transform_ip function.
- * <itemizedlist>
- *   <listitem>Always %TRUE if no transform function is implemented.</listitem>
- *   <listitem>Always %FALSE if ONLY transform function is implemented.</listitem>
- * </itemizedlist>
+ *
+ *   * Always %TRUE if no transform function is implemented.
+ *   * Always %FALSE if ONLY transform function is implemented.
  *
  * MT safe.
  */

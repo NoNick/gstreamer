@@ -22,6 +22,7 @@
 
 /**
  * SECTION:gsttaskpool
+ * @title: GstTaskPool
  * @short_description: Pool of GStreamer streaming threads
  * @see_also: #GstTask, #GstPad
  *
@@ -35,6 +36,7 @@
 
 #include "gstinfo.h"
 #include "gsttaskpool.h"
+#include "gsterror.h"
 
 GST_DEBUG_CATEGORY_STATIC (taskpool_debug);
 #define GST_CAT_DEFAULT (taskpool_debug)
@@ -87,24 +89,26 @@ static void
 default_prepare (GstTaskPool * pool, GError ** error)
 {
   GST_OBJECT_LOCK (pool);
-  pool->pool =
-      g_thread_pool_new ((GFunc) default_func, pool, pool->priv->max_threads,
-      pool->priv->exclusive, NULL);
+  pool->pool = g_thread_pool_new ((GFunc) default_func, pool, -1, FALSE, error);
   GST_OBJECT_UNLOCK (pool);
 }
 
 static void
 default_cleanup (GstTaskPool * pool)
 {
+  GThreadPool *pool_;
+
   GST_OBJECT_LOCK (pool);
-  if (pool->pool) {
+  pool_ = pool->pool;
+  pool->pool = NULL;
+  GST_OBJECT_UNLOCK (pool);
+
+  if (pool_) {
     /* Shut down all the threads, we still process the ones scheduled
      * because the unref happens in the thread function.
      * Also wait for currently running ones to finish. */
-    g_thread_pool_free (pool->pool, FALSE, TRUE);
-    pool->pool = NULL;
+    g_thread_pool_free (pool_, FALSE, TRUE);
   }
-  GST_OBJECT_UNLOCK (pool);
 }
 
 static gpointer
@@ -122,6 +126,9 @@ default_push (GstTaskPool * pool, GstTaskPoolFunction func,
     g_thread_pool_push (pool->pool, tdata, error);
   else {
     g_slice_free (TaskData, tdata);
+    g_set_error_literal (error, GST_CORE_ERROR, GST_CORE_ERROR_FAILED,
+        "No thread pool");
+
   }
   GST_OBJECT_UNLOCK (pool);
 
@@ -198,7 +205,10 @@ gst_task_pool_new (void)
 {
   GstTaskPool *pool;
 
-  pool = g_object_newv (GST_TYPE_TASK_POOL, 0, NULL);
+  pool = g_object_new (GST_TYPE_TASK_POOL, NULL);
+
+  /* clear floating flag */
+  gst_object_ref_sink (pool);
 
   return pool;
 }
@@ -301,7 +311,7 @@ not_supported:
  * @pool: a #GstTaskPool
  * @id: the id
  *
- * Join a task and/or return it to the pool. @id is the id obtained from 
+ * Join a task and/or return it to the pool. @id is the id obtained from
  * gst_task_pool_push().
  */
 void

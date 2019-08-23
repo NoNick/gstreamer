@@ -23,6 +23,7 @@
 
 /**
  * SECTION:gstclock
+ * @title: GstClock
  * @short_description: Abstract class for global clocks
  * @see_also: #GstSystemClock, #GstPipeline
  *
@@ -74,7 +75,7 @@
  * for unreffing the ids itself. This holds for both periodic and single shot
  * notifications. The reason being that the owner of the #GstClockID has to
  * keep a handle to the #GstClockID to unblock the wait on FLUSHING events or
- * state changes and if the entry would be unreffed automatically, the handle 
+ * state changes and if the entry would be unreffed automatically, the handle
  * might become invalid without any notification.
  *
  * These clock operations do not operate on the running time, so the callbacks
@@ -90,7 +91,7 @@
  * plugins that have an internal clock but must operate with another clock
  * selected by the #GstPipeline.  They can track the offset and rate difference
  * of their internal clock relative to the master clock by using the
- * gst_clock_get_calibration() function. 
+ * gst_clock_get_calibration() function.
  *
  * The master/slave synchronisation can be tuned with the #GstClock:timeout,
  * #GstClock:window-size and #GstClock:window-threshold properties.
@@ -107,12 +108,6 @@
 #include "gstinfo.h"
 #include "gstutils.h"
 #include "glib-compat-private.h"
-
-#ifndef GST_DISABLE_TRACE
-/* #define GST_WITH_ALLOC_TRACE */
-#include "gsttrace.h"
-static GstAllocTrace *_gst_clock_entry_trace;
-#endif
 
 /* #define DEBUGGING_ENABLED */
 
@@ -163,6 +158,7 @@ struct _GstClockPrivate
   gint time_index;
   GstClockTime timeout;
   GstClockTime *times;
+  GstClockTime *times_temp;
   GstClockID clockid;
 
   gint pre_count;
@@ -246,9 +242,9 @@ gst_clock_entry_new (GstClock * clock, GstClockTime time,
   GstClockEntry *entry;
 
   entry = g_slice_new (GstClockEntry);
-#ifndef GST_DISABLE_TRACE
-  _gst_alloc_trace_new (_gst_clock_entry_trace, entry);
-#endif
+
+  /* FIXME: add tracer hook for struct allocations such as clock entries */
+
   GST_CAT_DEBUG_OBJECT (GST_CAT_CLOCK, clock,
       "created entry %p, time %" GST_TIME_FORMAT, entry, GST_TIME_ARGS (time));
 
@@ -358,9 +354,8 @@ _gst_clock_id_free (GstClockID id)
   if (entry->destroy_data)
     entry->destroy_data (entry->user_data);
 
-#ifndef GST_DISABLE_TRACE
-  _gst_alloc_trace_free (_gst_clock_entry_trace, id);
-#endif
+  /* FIXME: add tracer hook for struct allocations such as clock entries */
+
   g_slice_free (GstClockEntry, id);
 }
 
@@ -496,23 +491,23 @@ gst_clock_id_get_time (GstClockID id)
  * @jitter: (out) (allow-none): a pointer that will contain the jitter,
  *     can be %NULL.
  *
- * Perform a blocking wait on @id. 
+ * Perform a blocking wait on @id.
  * @id should have been created with gst_clock_new_single_shot_id()
  * or gst_clock_new_periodic_id() and should not have been unscheduled
- * with a call to gst_clock_id_unschedule(). 
+ * with a call to gst_clock_id_unschedule().
  *
  * If the @jitter argument is not %NULL and this function returns #GST_CLOCK_OK
  * or #GST_CLOCK_EARLY, it will contain the difference
  * against the clock and the time of @id when this method was
- * called. 
+ * called.
  * Positive values indicate how late @id was relative to the clock
- * (in which case this function will return #GST_CLOCK_EARLY). 
- * Negative values indicate how much time was spent waiting on the clock 
+ * (in which case this function will return #GST_CLOCK_EARLY).
+ * Negative values indicate how much time was spent waiting on the clock
  * before this function returned.
  *
  * Returns: the result of the blocking wait. #GST_CLOCK_EARLY will be returned
- * if the current clock time is past the time of @id, #GST_CLOCK_OK if 
- * @id was scheduled in time. #GST_CLOCK_UNSCHEDULED if @id was 
+ * if the current clock time is past the time of @id, #GST_CLOCK_OK if
+ * @id was scheduled in time. #GST_CLOCK_UNSCHEDULED if @id was
  * unscheduled with gst_clock_id_unschedule().
  *
  * MT safe.
@@ -680,10 +675,6 @@ gst_clock_class_init (GstClockClass * klass)
 {
   GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
 
-#ifndef GST_DISABLE_TRACE
-  _gst_clock_entry_trace = _gst_alloc_trace_register ("GstClockEntry", -1);
-#endif
-
   gobject_class->dispose = gst_clock_dispose;
   gobject_class->finalize = gst_clock_finalize;
   gobject_class->set_property = gst_clock_set_property;
@@ -749,9 +740,7 @@ gst_clock_init (GstClock * clock)
   priv->time_index = 0;
   priv->timeout = DEFAULT_TIMEOUT;
   priv->times = g_new0 (GstClockTime, 4 * priv->window_size);
-
-  /* clear floating flag */
-  gst_object_ref_sink (clock);
+  priv->times_temp = priv->times + 2 * priv->window_size;
 }
 
 static void
@@ -781,6 +770,7 @@ gst_clock_finalize (GObject * object)
   }
   g_free (clock->priv->times);
   clock->priv->times = NULL;
+  clock->priv->times_temp = NULL;
   GST_CLOCK_SLAVE_UNLOCK (clock);
 
   g_mutex_clear (&clock->priv->slave_lock);
@@ -1109,7 +1099,7 @@ gst_clock_get_time (GstClock * clock)
  * @internal: a reference internal time
  * @external: a reference external time
  * @rate_num: the numerator of the rate of the clock relative to its
- *            internal time 
+ *            internal time
  * @rate_denom: the denominator of the rate of the clock
  *
  * Adjusts the rate and time of @clock. A rate of 1/1 is the normal speed of
@@ -1123,9 +1113,9 @@ gst_clock_get_time (GstClock * clock)
  * Subsequent calls to gst_clock_get_time() will return clock times computed as
  * follows:
  *
- * <programlisting>
+ * |[
  *   time = (internal_time - internal) * rate_num / rate_denom + external
- * </programlisting>
+ * ]|
  *
  * This formula is implemented in gst_clock_adjust_unlocked(). Of course, it
  * tries to do the integer arithmetic as precisely as possible.
@@ -1164,7 +1154,7 @@ gst_clock_set_calibration (GstClock * clock, GstClockTime internal, GstClockTime
 
 /**
  * gst_clock_get_calibration:
- * @clock: a #GstClock 
+ * @clock: a #GstClock
  * @internal: (out) (allow-none): a location to store the internal time
  * @external: (out) (allow-none): a location to store the external time
  * @rate_num: (out) (allow-none): a location to store the rate numerator
@@ -1234,22 +1224,22 @@ gst_clock_slave_callback (GstClock * master, GstClockTime time,
 
 /**
  * gst_clock_set_master:
- * @clock: a #GstClock 
- * @master: (allow-none): a master #GstClock 
+ * @clock: a #GstClock
+ * @master: (allow-none): a master #GstClock
  *
  * Set @master as the master clock for @clock. @clock will be automatically
  * calibrated so that gst_clock_get_time() reports the same time as the
- * master clock.  
- * 
+ * master clock.
+ *
  * A clock provider that slaves its clock to a master can get the current
  * calibration values with gst_clock_get_calibration().
  *
  * @master can be %NULL in which case @clock will not be slaved anymore. It will
- * however keep reporting its time adjusted with the last configured rate 
+ * however keep reporting its time adjusted with the last configured rate
  * and time offsets.
  *
- * Returns: %TRUE if the clock is capable of being slaved to a master clock. 
- * Trying to set a master on a clock without the 
+ * Returns: %TRUE if the clock is capable of being slaved to a master clock.
+ * Trying to set a master on a clock without the
  * #GST_CLOCK_FLAG_CAN_SET_MASTER flag will make this function return %FALSE.
  *
  * MT safe.
@@ -1322,7 +1312,7 @@ master_not_synced:
 
 /**
  * gst_clock_get_master:
- * @clock: a #GstClock 
+ * @clock: a #GstClock
  *
  * Get the master clock that @clock is slaved to or %NULL when the clock is
  * not slaved to any master clock.
@@ -1353,7 +1343,7 @@ gst_clock_get_master (GstClock * clock)
 
 /**
  * gst_clock_add_observation:
- * @clock: a #GstClock 
+ * @clock: a #GstClock
  * @slave: a time on the slave
  * @master: a time on the master
  * @r_squared: (out): a pointer to hold the result
@@ -1363,13 +1353,13 @@ gst_clock_get_master (GstClock * clock)
  * are available, a linear regression algorithm is run on the
  * observations and @clock is recalibrated.
  *
- * If this functions returns %TRUE, @r_squared will contain the 
+ * If this functions returns %TRUE, @r_squared will contain the
  * correlation coefficient of the interpolation. A value of 1.0
  * means a perfect regression was performed. This value can
  * be used to control the sampling frequency of the master and slave
  * clocks.
  *
- * Returns: %TRUE if enough observations were added to run the 
+ * Returns: %TRUE if enough observations were added to run the
  * regression algorithm.
  *
  * MT safe.
@@ -1431,8 +1421,8 @@ gst_clock_add_observation_unapplied (GstClock * clock, GstClockTime slave,
       "adding observation slave %" GST_TIME_FORMAT ", master %" GST_TIME_FORMAT,
       GST_TIME_ARGS (slave), GST_TIME_ARGS (master));
 
-  priv->times[(4 * priv->time_index)] = slave;
-  priv->times[(4 * priv->time_index) + 2] = master;
+  priv->times[(2 * priv->time_index)] = slave;
+  priv->times[(2 * priv->time_index) + 1] = master;
 
   priv->time_index++;
   if (G_UNLIKELY (priv->time_index == priv->window_size)) {
@@ -1444,8 +1434,8 @@ gst_clock_add_observation_unapplied (GstClock * clock, GstClockTime slave,
     goto filling;
 
   n = priv->filling ? priv->time_index : priv->window_size;
-  if (!_priv_gst_do_linear_regression (priv->times, n, &m_num, &m_denom, &b,
-          &xbase, r_squared))
+  if (!gst_calculate_linear_regression (priv->times, priv->times_temp, n,
+          &m_num, &m_denom, &b, &xbase, r_squared))
     goto invalid;
 
   GST_CLOCK_SLAVE_UNLOCK (clock);
@@ -1474,7 +1464,7 @@ invalid:
   {
     /* no valid regression has been done, ignore the result then */
     GST_CLOCK_SLAVE_UNLOCK (clock);
-    return TRUE;
+    return FALSE;
   }
 }
 
@@ -1534,6 +1524,7 @@ gst_clock_set_property (GObject * object, guint prop_id,
       priv->window_size = g_value_get_int (value);
       priv->window_threshold = MIN (priv->window_threshold, priv->window_size);
       priv->times = g_renew (GstClockTime, priv->times, 4 * priv->window_size);
+      priv->times_temp = priv->times + 2 * priv->window_size;
       /* restart calibration */
       priv->filling = TRUE;
       priv->time_index = 0;
@@ -1594,7 +1585,6 @@ gst_clock_get_property (GObject * object, guint prop_id,
  * after @timeout nanoseconds.
  *
  * For asynchronous waiting, the GstClock::synced signal can be used.
- *
  *
  * This returns immediately with TRUE if GST_CLOCK_FLAG_NEEDS_STARTUP_SYNC
  * is not set on the clock, or if the clock is already synced.

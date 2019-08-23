@@ -13,6 +13,7 @@ GObject
           GstFdSink
           GstFileSink
         GstBaseSrc
+          GstDataURISrc
           GstFakeSrc
           GstFileSrc
           GstPushSrc
@@ -35,10 +36,13 @@ GObject
         GstTypeFindElement
         GstValve
       GstPad
+        GstMultiQueuePad
+        GstSelectorPad
       GstPadTemplate
       GstPlugin
       GstPluginFeature
         GstDeviceProviderFactory
+        GstDynamicTypeFactory
         GstElementFactory
         GstTracerFactory
         GstTypeFindFactory
@@ -47,9 +51,11 @@ GObject
       GstTaskPool
       GstTracer
         GstLatencyTracer
+        GstLeaksTracer
         GstLogTracer
         GstRUsageTracer
         GstStatsTracer
+      GstTracerRecord
 GInterface
   GTypePlugin
   GstChildProxy

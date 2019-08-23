@@ -37,6 +37,7 @@ typedef struct _GstTracerRecordClass GstTracerRecordClass;
 #define GST_TRACER_RECORD_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS((obj),GST_TYPE_TRACER_RECORD,GstTracerRecordClass))
 #define GST_TRACER_RECORD_CAST(obj)       ((GstTracerRecord *)(obj))
 
+GST_API
 GType gst_tracer_record_get_type          (void);
 
 #ifdef G_DEFINE_AUTOPTR_CLEANUP_FUNC
@@ -72,8 +73,8 @@ typedef enum
  * @GST_TRACER_VALUE_FLAGS_OPTIONAL: the value is optional. When using this flag
  *   one need to have an additional boolean arg before this value in the
  *   var-args list passed to  gst_tracer_record_log().
- * @GST_TRACER_VALUE_FLAGS_AGGREGATED: the value is combined since the start of
- *   tracing
+ * @GST_TRACER_VALUE_FLAGS_AGGREGATED: the value is a combined figure, since the
+ *   start of tracing. Examples are averages or timestamps.
  *
  * Flag that describe the value. These flags help applications processing the
  * logs to understand the values.
@@ -87,9 +88,11 @@ typedef enum
 
 #ifdef GST_USE_UNSTABLE_API
 
+GST_API
 GstTracerRecord * gst_tracer_record_new (const gchar * name, const gchar * firstfield, ...);
 
 #ifndef GST_DISABLE_GST_DEBUG
+GST_API
 void              gst_tracer_record_log (GstTracerRecord *self, ...);
 #else
 #define gst_tracer_record_log(...) G_STMT_START {} G_STMT_END

@@ -21,6 +21,7 @@
 
 /**
  * SECTION:gstdevicemonitor
+ * @title: GstDeviceMonitor
  * @short_description: A device monitor and prober
  * @see_also: #GstDevice, #GstDeviceProvider
  *
@@ -33,7 +34,6 @@
  *
  * The device monitor will monitor all devices matching the filters that
  * the application has set.
- *
  *
  * The basic use pattern of a device monitor is as follows:
  * |[
@@ -49,12 +49,14 @@
  *          name = gst_device_get_display_name (device);
  *          g_print("Device added: %s\n", name);
  *          g_free (name);
+ *          gst_object_unref (device);
  *          break;
  *        case GST_MESSAGE_DEVICE_REMOVED:
  *          gst_message_parse_device_removed (message, &device);
  *          name = gst_device_get_display_name (device);
  *          g_print("Device removed: %s\n", name);
  *          g_free (name);
+ *          gst_object_unref (device);
  *          break;
  *        default:
  *          break;
@@ -234,7 +236,7 @@ bus_sync_message (GstBus * bus, GstMessage * message,
   GstMessageType type = GST_MESSAGE_TYPE (message);
 
   if (type == GST_MESSAGE_DEVICE_ADDED || type == GST_MESSAGE_DEVICE_REMOVED) {
-    gboolean matches;
+    gboolean matches = TRUE;
     GstDevice *device;
     GstDeviceProvider *provider;
 
@@ -248,7 +250,7 @@ bus_sync_message (GstBus * bus, GstMessage * message,
         GST_DEVICE_PROVIDER (gst_object_get_parent (GST_OBJECT (device)));
     if (is_provider_hidden (monitor, monitor->priv->hidden, provider)) {
       matches = FALSE;
-    } else if (monitor->priv->filters->len) {
+    } else {
       guint i;
 
       for (i = 0; i < monitor->priv->filters->len; i++) {
@@ -263,8 +265,6 @@ bus_sync_message (GstBus * bus, GstMessage * message,
         if (matches)
           break;
       }
-    } else {
-      matches = TRUE;
     }
     GST_OBJECT_UNLOCK (monitor);
 
@@ -342,7 +342,7 @@ gst_device_monitor_dispose (GObject * object)
  * Gets a list of devices from all of the relevant monitors. This may actually
  * probe the hardware if the monitor is not currently started.
  *
- * Returns: (transfer full) (element-type GstDevice): a #GList of
+ * Returns: (transfer full) (element-type GstDevice) (nullable): a #GList of
  *   #GstDevice
  *
  * Since: 1.4
@@ -362,13 +362,13 @@ gst_device_monitor_get_devices (GstDeviceMonitor * monitor)
   if (monitor->priv->filters->len == 0) {
     GST_OBJECT_UNLOCK (monitor);
     GST_WARNING_OBJECT (monitor, "No filters have been set");
-    return FALSE;
+    return NULL;
   }
 
   if (monitor->priv->providers->len == 0) {
     GST_OBJECT_UNLOCK (monitor);
     GST_WARNING_OBJECT (monitor, "No providers match the current filters");
-    return FALSE;
+    return NULL;
   }
 
 again:
@@ -790,7 +790,14 @@ gst_device_monitor_remove_filter (GstDeviceMonitor * monitor, guint filter_id)
 GstDeviceMonitor *
 gst_device_monitor_new (void)
 {
-  return g_object_new (GST_TYPE_DEVICE_MONITOR, NULL);
+  GstDeviceMonitor *monitor;
+
+  monitor = g_object_new (GST_TYPE_DEVICE_MONITOR, NULL);
+
+  /* Clear floating flag */
+  gst_object_ref_sink (monitor);
+
+  return monitor;
 }
 
 /**

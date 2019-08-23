@@ -23,6 +23,7 @@
 
 /**
  * SECTION:gsttestclock
+ * @title: GstTestClock
  * @short_description: Controllable, deterministic clock for GStreamer unit tests
  * @see_also: #GstSystemClock, #GstClock
  *
@@ -34,11 +35,11 @@
  * precisely advance the time in a deterministic manner, independent of the
  * system time or any other external factors.
  *
- * <example>
- * <title>Advancing the time of a #GstTestClock</title>
- *   <programlisting language="c">
- *   #include &lt;gst/gst.h&gt;
- *   #include &lt;gst/check/gsttestclock.h&gt;
+ * ## Advancing the time of a #GstTestClock
+ *
+ * |[<!-- language="C" -->
+ *   #include <gst/gst.h>
+ *   #include <gst/check/gsttestclock.h>
  *
  *   GstClock *clock;
  *   GstTestClock *test_clock;
@@ -53,8 +54,7 @@
  *   gst_test_clock_set_time (test_clock, 42 * GST_SECOND);
  *   GST_INFO ("Time: %" GST_TIME_FORMAT, GST_TIME_ARGS (gst_clock_get_time (clock)));
  *   ...
- *   </programlisting>
- * </example>
+ * ]|
  *
  * #GstClock allows for setting up single shot or periodic clock notifications
  * as well as waiting for these notifications synchronously (using
@@ -93,12 +93,12 @@
  * second buffer will arrive a little late (7ms) due to simulated jitter in the
  * clock notification.
  *
- * <example>
- * <title>Demonstration of how to work with clock notifications and #GstTestClock</title>
- *   <programlisting language="c">
- *   #include &lt;gst/gst.h&gt;
- *   #include &lt;gst/check/gstcheck.h&gt;
- *   #include &lt;gst/check/gsttestclock.h&gt;
+ * ## Demonstration of how to work with clock notifications and #GstTestClock
+ *
+ * |[<!-- language="C" -->
+ *   #include <gst/gst.h>
+ *   #include <gst/check/gstcheck.h>
+ *   #include <gst/check/gsttestclock.h>
  *
  *   GstClockTime latency;
  *   GstElement *element;
@@ -166,8 +166,7 @@
  *   GST_INFO ("Check that element does not wait for any clock notification\n");
  *   g_assert (!gst_test_clock_peek_next_pending_id (test_clock, NULL));
  *   ...
- *   </programlisting>
- * </example>
+ * ]|
  *
  * Since #GstTestClock is only supposed to be used in unit tests it calls
  * g_assert(), g_assert_cmpint() or g_assert_cmpuint() to validate all function
@@ -183,7 +182,8 @@
 enum
 {
   PROP_0,
-  PROP_START_TIME
+  PROP_START_TIME,
+  PROP_CLOCK_TYPE
 };
 
 typedef struct _GstClockEntryContext GstClockEntryContext;
@@ -196,12 +196,15 @@ struct _GstClockEntryContext
 
 struct _GstTestClockPrivate
 {
+  GstClockType clock_type;
   GstClockTime start_time;
   GstClockTime internal_time;
   GList *entry_contexts;
   GCond entry_added_cond;
   GCond entry_processed_cond;
 };
+
+#define DEFAULT_CLOCK_TYPE GST_CLOCK_TYPE_MONOTONIC
 
 #define GST_TEST_CLOCK_GET_PRIVATE(obj) ((GST_TEST_CLOCK_CAST (obj))->priv)
 
@@ -287,6 +290,13 @@ gst_test_clock_class_init (GstTestClockClass * klass)
       "Start Time of the Clock", 0, G_MAXUINT64, 0,
       G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT_ONLY);
   g_object_class_install_property (gobject_class, PROP_START_TIME, pspec);
+
+  g_object_class_install_property (gobject_class, PROP_CLOCK_TYPE,
+      g_param_spec_enum ("clock-type", "Clock type",
+          "The kind of clock implementation to be reported by this clock",
+          GST_TYPE_CLOCK_TYPE, DEFAULT_CLOCK_TYPE,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
 }
 
 static void
@@ -301,6 +311,7 @@ gst_test_clock_init (GstTestClock * test_clock)
 
   g_cond_init (&priv->entry_added_cond);
   g_cond_init (&priv->entry_processed_cond);
+  priv->clock_type = DEFAULT_CLOCK_TYPE;
 
   GST_OBJECT_FLAG_SET (test_clock,
       GST_CLOCK_FLAG_CAN_DO_SINGLE_SYNC |
@@ -361,6 +372,9 @@ gst_test_clock_get_property (GObject * object, guint property_id,
     case PROP_START_TIME:
       g_value_set_uint64 (value, priv->start_time);
       break;
+    case PROP_CLOCK_TYPE:
+      g_value_set_enum (value, priv->clock_type);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
       break;
@@ -380,6 +394,11 @@ gst_test_clock_set_property (GObject * object, guint property_id,
       GST_CAT_TRACE_OBJECT (GST_CAT_TEST_CLOCK, test_clock,
           "test clock start time initialized at %" GST_TIME_FORMAT,
           GST_TIME_ARGS (priv->start_time));
+      break;
+    case PROP_CLOCK_TYPE:
+      priv->clock_type = (GstClockType) g_value_get_enum (value);
+      GST_CAT_DEBUG (GST_CAT_TEST_CLOCK, "clock-type set to %d",
+          priv->clock_type);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, property_id, pspec);
@@ -672,8 +691,15 @@ gst_test_clock_new (void)
 GstClock *
 gst_test_clock_new_with_start_time (GstClockTime start_time)
 {
+  GstClock *clock;
+
   g_assert_cmpuint (start_time, !=, GST_CLOCK_TIME_NONE);
-  return g_object_new (GST_TYPE_TEST_CLOCK, "start-time", start_time, NULL);
+  clock = g_object_new (GST_TYPE_TEST_CLOCK, "start-time", start_time, NULL);
+
+  /* Clear floating flag */
+  gst_object_ref_sink (clock);
+
+  return clock;
 }
 
 /**
@@ -885,10 +911,6 @@ gst_test_clock_wait_for_next_pending_id (GstTestClock * test_clock,
  * Deprecated: use gst_test_clock_wait_for_multiple_pending_ids() instead.
  */
 #ifndef GST_REMOVE_DEPRECATED
-#ifdef GST_DISABLE_DEPRECATED
-void gst_test_clock_wait_for_pending_id_count (GstTestClock * test_clock,
-    guint count);
-#endif
 void
 gst_test_clock_wait_for_pending_id_count (GstTestClock * test_clock,
     guint count)

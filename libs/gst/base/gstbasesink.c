@@ -21,6 +21,7 @@
 
 /**
  * SECTION:gstbasesink
+ * @title: GstBaseSink
  * @short_description: Base class for sink elements
  * @see_also: #GstBaseTransform, #GstBaseSrc
  *
@@ -45,14 +46,13 @@
  *
  *   // sinktemplate should be a #GstStaticPadTemplate with direction
  *   // %GST_PAD_SINK and name "sink"
- *   gst_element_class_add_pad_template (gstelement_class,
- *       gst_static_pad_template_get (&amp;sinktemplate));
+ *   gst_element_class_add_static_pad_template (gstelement_class, &amp;sinktemplate);
  *
  *   gst_element_class_set_static_metadata (gstelement_class,
  *       "Sink name",
  *       "Sink",
  *       "My Sink element",
- *       "The author &lt;my.sink@my.email&gt;");
+ *       "The author <my.sink@my.email>");
  * }
  * ]|
  *
@@ -99,7 +99,7 @@
  * should configure itself to process a specific media type.
  *
  * The #GstBaseSinkClass.start() and #GstBaseSinkClass.stop() virtual methods
- * will be called when resources should be allocated. Any 
+ * will be called when resources should be allocated. Any
  * #GstBaseSinkClass.preroll(), #GstBaseSinkClass.render() and
  * #GstBaseSinkClass.set_caps() function will be called between the
  * #GstBaseSinkClass.start() and #GstBaseSinkClass.stop() calls.
@@ -202,19 +202,8 @@ struct _GstBaseSinkPrivate
   GstClockTime last_left;
 
   /* running averages go here these are done on running time */
-  GstClockTime avg_pt;
-  GstClockTime avg_duration;
-  gdouble avg_rate;
-  GstClockTime avg_in_diff;
-
-  /* these are done on system time. avg_jitter and avg_render are
-   * compared to eachother to see if the rendering time takes a
-   * huge amount of the processing, If so we are flooded with
-   * buffers. */
-  GstClockTime last_left_systime;
-  GstClockTime avg_jitter;
-  GstClockTime start, stop;
-  GstClockTime avg_render;
+  GstClockTime avg_pt, avg_in_diff;
+  gdouble avg_rate;             /* average with infinite window */
 
   /* number of rendered and dropped frames */
   guint64 rendered;
@@ -270,6 +259,8 @@ struct _GstBaseSinkPrivate
   GstClockTime rc_time;
   GstClockTime rc_next;
   gsize rc_accumulated;
+
+  gboolean drop_out_of_segment;
 };
 
 #define DO_RUNNING_AVG(avg,val,size) (((val) + ((size)-1) * (avg)) / (size))
@@ -298,6 +289,7 @@ struct _GstBaseSinkPrivate
 #define DEFAULT_ENABLE_LAST_SAMPLE  TRUE
 #define DEFAULT_THROTTLE_TIME       0
 #define DEFAULT_MAX_BITRATE         0
+#define DEFAULT_DROP_OUT_OF_SEGMENT TRUE
 
 enum
 {
@@ -667,6 +659,8 @@ gst_base_sink_init (GstBaseSink * basesink, gpointer g_class)
   priv->throttle_time = DEFAULT_THROTTLE_TIME;
   priv->max_bitrate = DEFAULT_MAX_BITRATE;
 
+  priv->drop_out_of_segment = DEFAULT_DROP_OUT_OF_SEGMENT;
+
   GST_OBJECT_FLAG_SET (basesink, GST_ELEMENT_FLAG_SINK);
 }
 
@@ -728,6 +722,60 @@ gst_base_sink_get_sync (GstBaseSink * sink)
 }
 
 /**
+ * gst_base_sink_set_drop_out_of_segment:
+ * @sink: the sink
+ * @drop_out_of_segment: drop buffers outside the segment
+ *
+ * Configure @sink to drop buffers which are outside the current segment
+ *
+ * Since: 1.12
+ */
+void
+gst_base_sink_set_drop_out_of_segment (GstBaseSink * sink,
+    gboolean drop_out_of_segment)
+{
+  GstBaseSinkPrivate *priv;
+
+  g_return_if_fail (GST_IS_BASE_SINK (sink));
+
+  priv = GST_BASE_SINK_GET_PRIVATE (sink);
+
+  GST_OBJECT_LOCK (sink);
+  priv->drop_out_of_segment = drop_out_of_segment;
+  GST_OBJECT_UNLOCK (sink);
+
+}
+
+/**
+ * gst_base_sink_get_drop_out_of_segment:
+ * @sink: the sink
+ *
+ * Checks if @sink is currently configured to drop buffers which are outside
+ * the current segment
+ *
+ * Returns: %TRUE if the sink is configured to drop buffers outside the
+ * current segment.
+ *
+ * Since: 1.12
+ */
+gboolean
+gst_base_sink_get_drop_out_of_segment (GstBaseSink * sink)
+{
+  GstBaseSinkPrivate *priv;
+  gboolean res;
+
+  g_return_val_if_fail (GST_IS_BASE_SINK (sink), FALSE);
+
+  priv = GST_BASE_SINK_GET_PRIVATE (sink);
+
+  GST_OBJECT_LOCK (sink);
+  res = priv->drop_out_of_segment;
+  GST_OBJECT_UNLOCK (sink);
+
+  return res;
+}
+
+/**
  * gst_base_sink_set_max_lateness:
  * @sink: the sink
  * @max_lateness: the new max lateness value.
@@ -751,7 +799,7 @@ gst_base_sink_set_max_lateness (GstBaseSink * sink, gint64 max_lateness)
  * gst_base_sink_get_max_lateness:
  * @sink: the sink
  *
- * Gets the max lateness value. See gst_base_sink_set_max_lateness for
+ * Gets the max lateness value. See gst_base_sink_set_max_lateness() for
  * more details.
  *
  * Returns: The maximum time in nanoseconds that a buffer can be late
@@ -1283,7 +1331,7 @@ gst_base_sink_get_blocksize (GstBaseSink * sink)
  *
  * Set the time that will be inserted between rendered buffers. This
  * can be used to control the maximum buffers per second that the sink
- * will render. 
+ * will render.
  */
 void
 gst_base_sink_set_throttle_time (GstBaseSink * sink, guint64 throttle)
@@ -1300,7 +1348,7 @@ gst_base_sink_set_throttle_time (GstBaseSink * sink, guint64 throttle)
  * gst_base_sink_get_throttle_time:
  * @sink: a #GstBaseSink
  *
- * Get the time that will be inserted between frames to control the 
+ * Get the time that will be inserted between frames to control the
  * maximum buffers per second.
  *
  * Returns: the number of nanoseconds @sink will put between frames.
@@ -1905,7 +1953,7 @@ again:
         }
 
         rstart = rstop = rnext = priv->eos_rtime;
-        *do_sync = rstart != -1;
+        *do_sync = GST_CLOCK_TIME_IS_VALID (rstart);
         GST_DEBUG_OBJECT (basesink, "sync times for EOS %" GST_TIME_FORMAT,
             GST_TIME_ARGS (rstart));
         /* if we are stepping, we end now */
@@ -1938,8 +1986,8 @@ again:
     /* else do buffer sync code */
     GstBuffer *buffer = GST_BUFFER_CAST (obj);
 
-    /* just get the times to see if we need syncing, if the start returns -1 we
-     * don't sync. */
+    /* just get the times to see if we need syncing, if the retuned start is -1
+     * we don't sync. */
     if (bclass->get_times)
       bclass->get_times (basesink, buffer, &start, &stop);
 
@@ -2191,6 +2239,13 @@ no_clock:
  * If the #GstBaseSinkClass.render() method performs its own synchronisation
  * against the clock it must unblock when going from PLAYING to the PAUSED state
  * and call this method before continuing to render the remaining data.
+ *
+ * If the #GstBaseSinkClass.render() method can block on something else than
+ * the clock, it must also be ready to unblock immediately on
+ * the #GstBaseSinkClass.unlock() method and cause the
+ * #GstBaseSinkClass.render() method to immediately call this function.
+ * In this case, the subclass must be prepared to continue rendering where it
+ * left off if this function returns %GST_FLOW_OK.
  *
  * This function will block until a state change to PLAYING happens (in which
  * case this function returns %GST_FLOW_OK) or the processing must be stopped due
@@ -2481,7 +2536,8 @@ do_step:
   priv->eos_rtime = (do_sync ? rnext : GST_CLOCK_TIME_NONE);
 
   /* calculate inter frame spacing */
-  if (G_UNLIKELY (priv->prev_rstart != -1 && priv->prev_rstart < rstart)) {
+  if (G_UNLIKELY (GST_CLOCK_TIME_IS_VALID (priv->prev_rstart) &&
+          priv->prev_rstart < rstart)) {
     GstClockTime in_diff;
 
     in_diff = rstart - priv->prev_rstart;
@@ -2497,8 +2553,8 @@ do_step:
   }
   priv->prev_rstart = rstart;
 
-  if (G_UNLIKELY (priv->earliest_in_time != -1
-          && rstart < priv->earliest_in_time))
+  if (G_UNLIKELY (GST_CLOCK_TIME_IS_VALID (priv->earliest_in_time) &&
+          rstart < priv->earliest_in_time))
     goto qos_dropped;
 
 again:
@@ -2669,11 +2725,11 @@ gst_base_sink_perform_qos (GstBaseSink * sink, gboolean dropped)
     left = start + jitter;
   }
 
-  /* calculate duration of the buffer */
-  if (GST_CLOCK_TIME_IS_VALID (stop) && stop != start)
-    duration = stop - start;
-  else
-    duration = priv->avg_in_diff;
+  /* calculate duration of the buffer, only use buffer durations if not in
+   * trick mode or key-unit mode. Otherwise the buffer durations will be
+   * meaningless as frames are being dropped in-between without updating the
+   * durations. */
+  duration = priv->avg_in_diff;
 
   /* if we have the time when the last buffer left us, calculate
    * processing time */
@@ -2694,29 +2750,24 @@ gst_base_sink_perform_qos (GstBaseSink * sink, gboolean dropped)
       GST_TIME_ARGS (entered), GST_TIME_ARGS (left), GST_TIME_ARGS (pt),
       GST_TIME_ARGS (duration), jitter);
 
-  GST_CAT_DEBUG_OBJECT (GST_CAT_QOS, sink, "avg_duration: %" GST_TIME_FORMAT
-      ", avg_pt: %" GST_TIME_FORMAT ", avg_rate: %g",
-      GST_TIME_ARGS (priv->avg_duration), GST_TIME_ARGS (priv->avg_pt),
-      priv->avg_rate);
+  GST_CAT_DEBUG_OBJECT (GST_CAT_QOS, sink,
+      "avg_pt: %" GST_TIME_FORMAT ", avg_rate: %g",
+      GST_TIME_ARGS (priv->avg_pt), priv->avg_rate);
 
   /* collect running averages. for first observations, we copy the
    * values */
-  if (!GST_CLOCK_TIME_IS_VALID (priv->avg_duration))
-    priv->avg_duration = duration;
-  else
-    priv->avg_duration = UPDATE_RUNNING_AVG (priv->avg_duration, duration);
-
   if (!GST_CLOCK_TIME_IS_VALID (priv->avg_pt))
     priv->avg_pt = pt;
   else
     priv->avg_pt = UPDATE_RUNNING_AVG (priv->avg_pt, pt);
 
-  if (priv->avg_duration != 0)
+  if (duration != -1 && duration != 0) {
     rate =
         gst_guint64_to_gdouble (priv->avg_pt) /
-        gst_guint64_to_gdouble (priv->avg_duration);
-  else
+        gst_guint64_to_gdouble (duration);
+  } else {
     rate = 1.0;
+  }
 
   if (GST_CLOCK_TIME_IS_VALID (priv->last_left)) {
     if (dropped || priv->avg_rate < 0.0) {
@@ -2730,9 +2781,8 @@ gst_base_sink_perform_qos (GstBaseSink * sink, gboolean dropped)
   }
 
   GST_CAT_DEBUG_OBJECT (GST_CAT_QOS, sink,
-      "updated: avg_duration: %" GST_TIME_FORMAT ", avg_pt: %" GST_TIME_FORMAT
-      ", avg_rate: %g", GST_TIME_ARGS (priv->avg_duration),
-      GST_TIME_ARGS (priv->avg_pt), priv->avg_rate);
+      "updated: avg_pt: %" GST_TIME_FORMAT
+      ", avg_rate: %g", GST_TIME_ARGS (priv->avg_pt), priv->avg_rate);
 
 
   if (priv->avg_rate >= 0.0) {
@@ -2778,10 +2828,8 @@ gst_base_sink_reset_qos (GstBaseSink * sink)
   priv->prev_rstart = GST_CLOCK_TIME_NONE;
   priv->earliest_in_time = GST_CLOCK_TIME_NONE;
   priv->last_left = GST_CLOCK_TIME_NONE;
-  priv->avg_duration = GST_CLOCK_TIME_NONE;
   priv->avg_pt = GST_CLOCK_TIME_NONE;
   priv->avg_rate = -1.0;
-  priv->avg_render = GST_CLOCK_TIME_NONE;
   priv->avg_in_diff = GST_CLOCK_TIME_NONE;
   priv->rendered = 0;
   priv->dropped = 0;
@@ -2890,42 +2938,14 @@ no_timestamp:
   }
 }
 
-/* called before and after calling the render vmethod. It keeps track of how
- * much time was spent in the render method and is used to check if we are
- * flooded */
-static void
-gst_base_sink_do_render_stats (GstBaseSink * basesink, gboolean start)
-{
-  GstBaseSinkPrivate *priv;
-
-  priv = basesink->priv;
-
-  if (start) {
-    priv->start = gst_util_get_timestamp ();
-  } else {
-    GstClockTime elapsed;
-
-    priv->stop = gst_util_get_timestamp ();
-
-    elapsed = GST_CLOCK_DIFF (priv->start, priv->stop);
-
-    if (!GST_CLOCK_TIME_IS_VALID (priv->avg_render))
-      priv->avg_render = elapsed;
-    else
-      priv->avg_render = UPDATE_RUNNING_AVG (priv->avg_render, elapsed);
-
-    GST_CAT_DEBUG_OBJECT (GST_CAT_QOS, basesink,
-        "avg_render: %" GST_TIME_FORMAT, GST_TIME_ARGS (priv->avg_render));
-  }
-}
-
 static void
 gst_base_sink_update_start_time (GstBaseSink * basesink)
 {
   GstClock *clock;
 
   GST_OBJECT_LOCK (basesink);
-  if ((clock = GST_ELEMENT_CLOCK (basesink))) {
+  if (GST_STATE (basesink) == GST_STATE_PLAYING
+      && (clock = GST_ELEMENT_CLOCK (basesink))) {
     GstClockTime now;
 
     gst_object_ref (clock);
@@ -3323,13 +3343,6 @@ gst_base_sink_needs_preroll (GstBaseSink * basesink)
   return res;
 }
 
-static gboolean
-count_list_bytes (GstBuffer ** buffer, guint idx, GstBaseSinkPrivate * priv)
-{
-  priv->rc_accumulated += gst_buffer_get_size (*buffer);
-  return TRUE;
-}
-
 /* with STREAM_LOCK, PREROLL_LOCK
  *
  * Takes a buffer and compare the timestamps with the last segment.
@@ -3348,7 +3361,6 @@ gst_base_sink_chain_unlocked (GstBaseSink * basesink, GstPad * pad,
   GstClockTime start = GST_CLOCK_TIME_NONE, end = GST_CLOCK_TIME_NONE;
   GstSegment *segment;
   GstBuffer *sync_buf;
-  gint do_qos;
   gboolean late, step_end, prepared = FALSE;
 
   if (G_UNLIKELY (basesink->flushing))
@@ -3422,7 +3434,8 @@ gst_base_sink_chain_unlocked (GstBaseSink * basesink, GstPad * pad,
       pts_end = pts + (end - start);
 
     if (G_UNLIKELY (!gst_segment_clip (segment,
-                GST_FORMAT_TIME, pts, pts_end, NULL, NULL)))
+                GST_FORMAT_TIME, pts, pts_end, NULL, NULL)
+            && priv->drop_out_of_segment))
       goto out_of_segment;
   }
 
@@ -3465,6 +3478,12 @@ gst_base_sink_chain_unlocked (GstBaseSink * basesink, GstPad * pad,
       }
     }
 
+    /* We are about to prepare the first frame, make sure we have prerolled
+     * already. This prevent nesting prepare/render calls. */
+    ret = gst_base_sink_do_preroll (basesink, obj);
+    if (G_UNLIKELY (ret != GST_FLOW_OK))
+      goto preroll_failed;
+
     if (G_UNLIKELY (late))
       goto dropped;
 
@@ -3504,24 +3523,19 @@ again:
     goto dropped;
 
   if (priv->max_bitrate) {
-    if (is_list) {
-      gst_buffer_list_foreach (GST_BUFFER_LIST_CAST (obj),
-          (GstBufferListFunc) count_list_bytes, priv);
-    } else {
-      priv->rc_accumulated += gst_buffer_get_size (GST_BUFFER_CAST (obj));
-    }
+    gsize size;
+
+    if (is_list)
+      size = gst_buffer_list_calculate_size (GST_BUFFER_LIST_CAST (obj));
+    else
+      size = gst_buffer_get_size (GST_BUFFER_CAST (obj));
+
+    priv->rc_accumulated += size;
     priv->rc_next = priv->rc_time + gst_util_uint64_scale (priv->rc_accumulated,
         8 * GST_SECOND, priv->max_bitrate);
   }
 
-  /* read once, to get same value before and after */
-  do_qos = g_atomic_int_get (&priv->qos_enabled);
-
   GST_DEBUG_OBJECT (basesink, "rendering object %p", obj);
-
-  /* record rendering time for QoS and stats */
-  if (do_qos)
-    gst_base_sink_do_render_stats (basesink, TRUE);
 
   if (!is_list) {
     /* For buffer lists do not set last buffer for now. */
@@ -3540,9 +3554,6 @@ again:
     gst_base_sink_set_last_buffer (basesink, sync_buf);
     gst_base_sink_set_last_buffer_list (basesink, buffer_list);
   }
-
-  if (do_qos)
-    gst_base_sink_do_render_stats (basesink, FALSE);
 
   if (ret == GST_FLOW_STEP)
     goto again;
@@ -3637,6 +3648,12 @@ dropped:
       gst_element_post_message (GST_ELEMENT_CAST (basesink), qos_msg);
     }
     goto done;
+  }
+preroll_failed:
+  {
+    GST_DEBUG_OBJECT (basesink, "preroll failed: %s", gst_flow_get_name (ret));
+    gst_mini_object_unref (GST_MINI_OBJECT_CAST (obj));
+    return ret;
   }
 }
 
@@ -4085,14 +4102,12 @@ paused:
       }
     } else if (result == GST_FLOW_NOT_LINKED || result <= GST_FLOW_EOS) {
       /* for fatal errors we post an error message, post the error
-       * first so the app knows about the error first. 
+       * first so the app knows about the error first.
        * wrong-state is not a fatal error because it happens due to
        * flushing and posting an error message in that case is the
        * wrong thing to do, e.g. when basesrc is doing a flushing
        * seek. */
-      GST_ELEMENT_ERROR (basesink, STREAM, FAILED,
-          (_("Internal data stream error.")),
-          ("stream stopped, reason %s", gst_flow_get_name (result)));
+      GST_ELEMENT_FLOW_ERROR (basesink, result);
       gst_base_sink_event (pad, parent, gst_event_new_eos ());
     }
     return;
@@ -4490,6 +4505,8 @@ gst_base_sink_send_event (GstElement * element, GstEvent * event)
   }
 
   if (forward) {
+    GST_DEBUG_OBJECT (basesink, "sending event %p %" GST_PTR_FORMAT, event,
+        event);
     result = gst_pad_push_event (pad, event);
   } else {
     /* not forwarded, unref the event */
@@ -4498,8 +4515,7 @@ gst_base_sink_send_event (GstElement * element, GstEvent * event)
 
   gst_object_unref (pad);
 
-  GST_DEBUG_OBJECT (basesink, "handled event %p %" GST_PTR_FORMAT ": %d", event,
-      event, result);
+  GST_DEBUG_OBJECT (basesink, "handled event: %d", result);
 
   return result;
 }
@@ -4514,7 +4530,7 @@ gst_base_sink_get_position (GstBaseSink * basesink, GstFormat format,
   GstSegment *segment;
   GstClockTime now, latency;
   GstClockTimeDiff base_time;
-  gint64 time, base, duration;
+  gint64 time, base, offset, duration;
   gdouble rate;
   gint64 last;
   gboolean last_seen, with_clock, in_paused;
@@ -4565,6 +4581,11 @@ gst_base_sink_get_position (GstBaseSink * basesink, GstFormat format,
     time = segment->time;
   else
     time = 0;
+
+  if (GST_CLOCK_TIME_IS_VALID (segment->offset))
+    offset = segment->offset;
+  else
+    offset = 0;
 
   if (GST_CLOCK_TIME_IS_VALID (segment->stop))
     duration = segment->stop - segment->start;
@@ -4687,7 +4708,7 @@ gst_base_sink_get_position (GstBaseSink * basesink, GstFormat format,
     if (rate < 0.0)
       time += duration;
 
-    *cur = time + gst_guint64_to_gdouble (now - base_time) * rate;
+    *cur = time + offset + gst_guint64_to_gdouble (now - base_time) * rate;
 
     /* never report more than last seen position */
     if (last != -1) {

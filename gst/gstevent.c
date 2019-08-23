@@ -23,6 +23,7 @@
 
 /**
  * SECTION:gstevent
+ * @title: GstEvent
  * @short_description: Structure describing events that are passed up and down
  *                     a pipeline
  * @see_also: #GstPad, #GstElement
@@ -57,8 +58,8 @@
  *   ...
  *   // construct a seek event to play the media from second 2 to 5, flush
  *   // the pipeline to decrease latency.
- *   event = gst_event_new_seek (1.0, 
- *      GST_FORMAT_TIME, 
+ *   event = gst_event_new_seek (1.0,
+ *      GST_FORMAT_TIME,
  *      GST_SEEK_FLAG_FLUSH,
  *      GST_SEEK_TYPE_SET, 2 * GST_SECOND,
  *      GST_SEEK_TYPE_SET, 5 * GST_SECOND);
@@ -104,7 +105,9 @@ static GstEventQuarks event_quarks[] = {
   {GST_EVENT_UNKNOWN, "unknown", 0},
   {GST_EVENT_FLUSH_START, "flush-start", 0},
   {GST_EVENT_FLUSH_STOP, "flush-stop", 0},
+  {GST_EVENT_SELECT_STREAMS, "select-streams", 0},
   {GST_EVENT_STREAM_START, "stream-start", 0},
+  {GST_EVENT_STREAM_COLLECTION, "stream-collection", 0},
   {GST_EVENT_CAPS, "caps", 0},
   {GST_EVENT_SEGMENT, "segment", 0},
   {GST_EVENT_TAG, "tag", 0},
@@ -128,6 +131,7 @@ static GstEventQuarks event_quarks[] = {
   {GST_EVENT_CUSTOM_DOWNSTREAM_STICKY, "custom-downstream-sticky", 0},
   {GST_EVENT_CUSTOM_BOTH, "custom-both", 0},
   {GST_EVENT_CUSTOM_BOTH_OOB, "custom-both-oob", 0},
+  {GST_EVENT_STREAM_GROUP_DONE, "stream-group-done", 0},
 
   {0, NULL, 0}
 };
@@ -289,7 +293,7 @@ gst_event_init (GstEventImpl * event, GstEventType type)
  * New custom events can also be created by subclassing the event type if
  * needed.
  *
- * Returns: (transfer full): the new custom event.
+ * Returns: (transfer full) (nullable): the new custom event.
  */
 GstEvent *
 gst_event_new_custom (GstEventType type, GstStructure * structure)
@@ -329,9 +333,9 @@ had_parent:
  *
  * Access the structure of the event.
  *
- * Returns: The structure of the event. The structure is still
- * owned by the event, which means that you should not free it and
- * that the pointer becomes invalid when you free the event.
+ * Returns: (transfer none) (nullable): The structure of the event. The
+ * structure is still owned by the event, which means that you should not free
+ * it and that the pointer becomes invalid when you free the event.
  *
  * MT safe.
  */
@@ -576,6 +580,137 @@ gst_event_parse_flush_stop (GstEvent * event, gboolean * reset_time)
 }
 
 /**
+ * gst_event_new_select_streams:
+ * @streams: (element-type utf8) (transfer none): the list of streams to
+ * activate
+ *
+ * Allocate a new select-streams event.
+ *
+ * The select-streams event requests the specified @streams to be activated.
+ *
+ * The list of @streams corresponds to the "Stream ID" of each stream to be
+ * activated. Those ID can be obtained via the #GstStream objects present
+ * in #GST_EVENT_STREAM_START, #GST_EVENT_STREAM_COLLECTION or
+ * #GST_MESSAGE_STREAM_COLLECTION.
+ *
+ * Note: The list of @streams can not be empty.
+ *
+ * Returns: (transfer full): a new select-streams event or %NULL in case of
+ * an error (like an empty streams list).
+ *
+ * Since: 1.10
+ */
+GstEvent *
+gst_event_new_select_streams (GList * streams)
+{
+  GstEvent *event;
+  GValue val = G_VALUE_INIT;
+  GstStructure *struc;
+  GList *tmpl;
+
+  g_return_val_if_fail (streams != NULL, NULL);
+
+  GST_CAT_INFO (GST_CAT_EVENT, "Creating new select-streams event");
+  struc = gst_structure_new_id_empty (GST_QUARK (EVENT_SELECT_STREAMS));
+  g_value_init (&val, GST_TYPE_LIST);
+  /* Fill struc with streams */
+  for (tmpl = streams; tmpl; tmpl = tmpl->next) {
+    GValue strval = G_VALUE_INIT;
+    const gchar *str = (const gchar *) tmpl->data;
+    g_value_init (&strval, G_TYPE_STRING);
+    g_value_set_string (&strval, str);
+    gst_value_list_append_and_take_value (&val, &strval);
+  }
+  gst_structure_id_take_value (struc, GST_QUARK (STREAMS), &val);
+  event = gst_event_new_custom (GST_EVENT_SELECT_STREAMS, struc);
+
+  return event;
+}
+
+/**
+ * gst_event_parse_select_streams:
+ * @event: The event to parse
+ * @streams: (out) (element-type utf8) (transfer full): the streams
+ *
+ * Parse the SELECT_STREAMS event and retrieve the contained streams.
+ *
+ * Since: 1.10
+ */
+void
+gst_event_parse_select_streams (GstEvent * event, GList ** streams)
+{
+  GstStructure *structure;
+  GList *res = NULL;
+
+  g_return_if_fail (GST_IS_EVENT (event));
+  g_return_if_fail (GST_EVENT_TYPE (event) == GST_EVENT_SELECT_STREAMS);
+
+  structure = GST_EVENT_STRUCTURE (event);
+  if (G_LIKELY (streams)) {
+    const GValue *vlist =
+        gst_structure_id_get_value (structure, GST_QUARK (STREAMS));
+    guint i, sz = gst_value_list_get_size (vlist);
+    for (i = 0; i < sz; i++) {
+      const GValue *strv = gst_value_list_get_value (vlist, i);
+      res = g_list_append (res, g_value_dup_string (strv));
+    }
+    *streams = res;
+  }
+}
+
+
+/**
+ * gst_event_new_stream_group_done:
+ * @group_id: the group id of the stream group which is ending
+ *
+ * Create a new Stream Group Done event. The stream-group-done event can
+ * only travel downstream synchronized with the buffer flow. Elements
+ * that receive the event on a pad should handle it mostly like EOS,
+ * and emit any data or pending buffers that would depend on more data
+ * arriving and unblock, since there won't be any more data.
+ *
+ * This event is followed by EOS at some point in the future, and is
+ * generally used when switching pads - to unblock downstream so that
+ * new pads can be exposed before sending EOS on the existing pads.
+ *
+ * Returns: (transfer full): the new stream-group-done event.
+ *
+ * Since: 1.10
+ */
+GstEvent *
+gst_event_new_stream_group_done (guint group_id)
+{
+  GstStructure *s;
+
+  s = gst_structure_new_id (GST_QUARK (EVENT_STREAM_GROUP_DONE),
+      GST_QUARK (GROUP_ID), G_TYPE_UINT, group_id, NULL);
+
+  return gst_event_new_custom (GST_EVENT_STREAM_GROUP_DONE, s);
+}
+
+/**
+ * gst_event_parse_stream_group_done:
+ * @event: a stream-group-done event.
+ * @group_id: (out): address of variable to store the group id into
+ *
+ * Parse a stream-group-done @event and store the result in the given
+ * @group_id location.
+ *
+ * Since: 1.10
+ */
+void
+gst_event_parse_stream_group_done (GstEvent * event, guint * group_id)
+{
+  g_return_if_fail (event != NULL);
+  g_return_if_fail (GST_EVENT_TYPE (event) == GST_EVENT_STREAM_GROUP_DONE);
+
+  if (group_id) {
+    gst_structure_id_get (GST_EVENT_STRUCTURE (event),
+        GST_QUARK (GROUP_ID), G_TYPE_UINT, group_id, NULL);
+  }
+}
+
+/**
  * gst_event_new_eos:
  *
  * Create a new EOS event. The eos event can only travel downstream
@@ -666,7 +801,7 @@ gst_event_parse_gap (GstEvent * event, GstClockTime * timestamp,
  * synchronized with the buffer flow and contains the format of the buffers
  * that will follow after the event.
  *
- * Returns: (transfer full): the new CAPS event.
+ * Returns: (transfer full) (nullable): the new CAPS event.
  */
 GstEvent *
 gst_event_new_caps (GstCaps * caps)
@@ -744,7 +879,7 @@ gst_event_parse_caps (GstEvent * event, GstCaps ** caps)
  *
  *   time + (TIMESTAMP(buf) - start) * ABS (rate * applied_rate)
  *
- * Returns: (transfer full): the new SEGMENT event.
+ * Returns: (transfer full) (nullable): the new SEGMENT event.
  */
 GstEvent *
 gst_event_new_segment (const GstSegment * segment)
@@ -960,7 +1095,7 @@ gst_event_parse_buffer_size (GstEvent * event, GstFormat * format,
  * @type indicates the reason for the QoS event. #GST_QOS_TYPE_OVERFLOW is
  * used when a buffer arrived in time or when the sink cannot keep up with
  * the upstream datarate. #GST_QOS_TYPE_UNDERFLOW is when the sink is not
- * receiving buffers fast enough and thus has to drop late buffers. 
+ * receiving buffers fast enough and thus has to drop late buffers.
  * #GST_QOS_TYPE_THROTTLE is used when the datarate is artificially limited
  * by the application, for example to reduce power consumption.
  *
@@ -993,7 +1128,7 @@ gst_event_parse_buffer_size (GstEvent * event, GstFormat * format,
  * The application can use general event probes to intercept the QoS
  * event and implement custom application specific QoS handling.
  *
- * Returns: (transfer full): a new QOS event.
+ * Returns: (transfer full) (nullable): a new QOS event.
  */
 GstEvent *
 gst_event_new_qos (GstQOSType type, gdouble proportion,
@@ -1100,15 +1235,15 @@ gst_event_parse_qos (GstEvent * event, GstQOSType * type,
  *
  * A pipeline has a default playback segment configured with a start
  * position of 0, a stop position of -1 and a rate of 1.0. The currently
- * configured playback segment can be queried with #GST_QUERY_SEGMENT. 
+ * configured playback segment can be queried with #GST_QUERY_SEGMENT.
  *
- * @start_type and @stop_type specify how to adjust the currently configured 
+ * @start_type and @stop_type specify how to adjust the currently configured
  * start and stop fields in playback segment. Adjustments can be made relative
  * or absolute to the last configured values. A type of #GST_SEEK_TYPE_NONE
  * means that the position should not be updated.
  *
  * When the rate is positive and @start has been updated, playback will start
- * from the newly configured start position. 
+ * from the newly configured start position.
  *
  * For negative rates, playback will start from the newly configured stop
  * position (if any). If the stop position is updated, it must be different from
@@ -1119,7 +1254,7 @@ gst_event_parse_qos (GstEvent * event, GstQOSType * type,
  * #GST_QUERY_POSITION and update the playback segment current position with a
  * #GST_SEEK_TYPE_SET to the desired position.
  *
- * Returns: (transfer full): a new seek event.
+ * Returns: (transfer full) (nullable): a new seek event.
  */
 GstEvent *
 gst_event_new_seek (gdouble rate, GstFormat format, GstSeekFlags flags,
@@ -1300,7 +1435,7 @@ gst_event_parse_latency (GstEvent * event, GstClockTime * latency)
  * The @intermediate flag instructs the pipeline that this step operation is
  * part of a larger step operation.
  *
- * Returns: (transfer full): a new #GstEvent
+ * Returns: (transfer full) (nullable): a new #GstEvent
  */
 GstEvent *
 gst_event_new_step (GstFormat format, guint64 amount, gdouble rate,
@@ -1508,6 +1643,48 @@ gst_event_parse_stream_start (GstEvent * event, const gchar ** stream_id)
 }
 
 /**
+ * gst_event_set_stream:
+ * @event: a stream-start event
+ * @stream: (transfer none): the stream object to set
+ *
+ * Set the @stream on the stream-start @event
+ *
+ * Since: 1.10
+ */
+void
+gst_event_set_stream (GstEvent * event, GstStream * stream)
+{
+  g_return_if_fail (event != NULL);
+  g_return_if_fail (GST_EVENT_TYPE (event) == GST_EVENT_STREAM_START);
+  g_return_if_fail (gst_event_is_writable (event));
+
+  gst_structure_id_set (GST_EVENT_STRUCTURE (event),
+      GST_QUARK (STREAM), GST_TYPE_STREAM, stream, NULL);
+}
+
+/**
+ * gst_event_parse_stream:
+ * @event: a stream-start event
+ * @stream: (out) (transfer full): adress of variable to store the stream
+ *
+ * Parse a stream-start @event and extract the #GstStream from it.
+ *
+ * Since: 1.10
+ */
+void
+gst_event_parse_stream (GstEvent * event, GstStream ** stream)
+{
+  g_return_if_fail (event != NULL);
+  g_return_if_fail (GST_EVENT_TYPE (event) == GST_EVENT_STREAM_START);
+
+  if (stream) {
+    gst_structure_id_get (GST_EVENT_STRUCTURE (event),
+        GST_QUARK (STREAM), GST_TYPE_STREAM, stream, NULL);
+  }
+
+}
+
+/**
  * gst_event_set_stream_flags:
  * @event: a stream-start event
  * @flags: the stream flags to set
@@ -1593,6 +1770,63 @@ gst_event_parse_group_id (GstEvent * event, guint * group_id)
   }
 
   return TRUE;
+}
+
+/**
+ * gst_event_new_stream_collection:
+ * @collection: Active collection for this data flow
+ *
+ * Create a new STREAM_COLLECTION event. The stream collection event can only
+ * travel downstream synchronized with the buffer flow.
+ *
+ * Source elements, demuxers and other elements that manage collections
+ * of streams and post #GstStreamCollection messages on the bus also send
+ * this event downstream on each pad involved in the collection, so that
+ * activation of a new collection can be tracked through the downstream
+ * data flow.
+ *
+ * Returns: (transfer full): the new STREAM_COLLECTION event.
+ *
+ * Since: 1.10
+ */
+GstEvent *
+gst_event_new_stream_collection (GstStreamCollection * collection)
+{
+  GstStructure *s;
+
+  g_return_val_if_fail (collection != NULL, NULL);
+  g_return_val_if_fail (GST_IS_STREAM_COLLECTION (collection), NULL);
+
+  s = gst_structure_new_id (GST_QUARK (EVENT_STREAM_COLLECTION),
+      GST_QUARK (COLLECTION), GST_TYPE_STREAM_COLLECTION, collection, NULL);
+
+  return gst_event_new_custom (GST_EVENT_STREAM_COLLECTION, s);
+}
+
+/**
+ * gst_event_parse_stream_collection:
+ * @event: a stream-collection event
+ * @collection: (out): pointer to store the collection
+ *
+ * Retrieve new #GstStreamCollection from STREAM_COLLECTION event @event.
+ *
+ * Since: 1.10
+ */
+void
+gst_event_parse_stream_collection (GstEvent * event,
+    GstStreamCollection ** collection)
+{
+  const GstStructure *structure;
+
+  g_return_if_fail (event != NULL);
+  g_return_if_fail (GST_EVENT_TYPE (event) == GST_EVENT_STREAM_COLLECTION);
+
+  structure = gst_event_get_structure (event);
+
+  if (collection) {
+    gst_structure_id_get (structure,
+        GST_QUARK (COLLECTION), GST_TYPE_STREAM_COLLECTION, collection, NULL);
+  }
 }
 
 /**
@@ -1781,7 +2015,7 @@ gst_event_new_protection (const gchar * system_id,
  * string uniquely identifying a content protection system.
  * @data: (out) (allow-none) (transfer none): pointer to store a #GstBuffer
  * holding protection system specific information.
- * @origin: (allow-none) (transfer none): pointer to store a value that
+ * @origin: (out) (allow-none) (transfer none): pointer to store a value that
  * indicates where the protection information carried by @event was extracted
  * from.
  *

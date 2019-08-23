@@ -50,7 +50,7 @@ setup_factory (void)
   GstPluginFeature *feature;
   GstElementFactory *factory;
 
-  feature = g_object_newv (GST_TYPE_ELEMENT_FACTORY, 0, NULL);
+  feature = g_object_new (GST_TYPE_ELEMENT_FACTORY, NULL);
   gst_plugin_feature_set_name (feature, "test");
 
   factory = GST_ELEMENT_FACTORY_CAST (feature);
@@ -159,6 +159,7 @@ GST_START_TEST (test_class)
   fail_if (klass->elementfactory == NULL);
   fail_if (klass->elementfactory != factory);
 
+  gst_object_unref (factory);
 }
 
 GST_END_TEST;

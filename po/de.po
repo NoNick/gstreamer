@@ -1,4 +1,4 @@
-# German translation for gstreamer 1.7.2
+# German translation for gstreamer 1.7.90
 # Copyright (C) 2004 Free Software Foundation, Inc.
 # This file is distributed under the same license as the gstreamer package.
 #
@@ -7,18 +7,19 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: gstreamer 1.7.2\n"
+"Project-Id-Version: gstreamer 1.12.0\n"
 "Report-Msgid-Bugs-To: http://bugzilla.gnome.org/\n"
-"POT-Creation-Date: 2016-04-20 15:26+0300\n"
-"PO-Revision-Date: 2016-02-22 23:41+0100\n"
+"POT-Creation-Date: 2018-02-15 11:27+0000\n"
+"PO-Revision-Date: 2017-05-25 16:25+0200\n"
 "Last-Translator: Christian Kirbach <christian.kirbach@gmail.com>\n"
 "Language-Team: German <translation-team-de@lists.sourceforge.net>\n"
 "Language: de\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"X-Bugs: Report translation errors to the Language-Team address.\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
-"X-Generator: Poedit 1.8.7\n"
+"X-Generator: Poedit 2.0.1\n"
 "X-Poedit-SourceCharset: UTF-8\n"
 
 msgid "Print the GStreamer version"
@@ -473,10 +474,10 @@ msgid "person(s) who composed the recording"
 msgstr "Für die Aufnahme verantwortliche Person(en)"
 
 msgid "conductor"
-msgstr ""
+msgstr "Dirigent"
 
 msgid "conductor/performer refinement"
-msgstr ""
+msgstr "Detaillierung Dirigent/Darsteller"
 
 msgid "duration"
 msgstr "Dauer"
@@ -900,6 +901,22 @@ msgid "Delayed linking failed."
 msgstr "Verzögertes Verknüpfen ist fehlgeschlagen."
 
 #, c-format
+msgid "could not link %s to %s, %s can't handle caps %s"
+msgstr ""
+"%s konnte nicht mit %s verknüpft werden. %s kann nicht mit Großbuchstaben %s "
+"umgehen"
+
+#, c-format
+msgid "could not link %s to %s, neither element can handle caps %s"
+msgstr ""
+"%s konnte nicht mit %s verknüpft werden. Keines der Elemente kann mit "
+"Großbuchstaben %s umgehen"
+
+#, c-format
+msgid "could not link %s to %s with caps %s"
+msgstr "%s konnte nicht mit %s verknüpft werden mit den Großbuchstaben %s"
+
+#, c-format
 msgid "could not link %s to %s"
 msgstr "%s konnte nicht mit %s verknüpft werden"
 
@@ -930,9 +947,6 @@ msgstr "Kein Quellelement für URI »%s«"
 msgid "syntax error"
 msgstr "Syntaxfehler"
 
-msgid "bin"
-msgstr "Behälter"
-
 #, c-format
 msgid "specified empty bin \"%s\", not allowed"
 msgstr "Leeren Behälter »%s« angegeben -- nicht erlaubt"
@@ -949,9 +963,6 @@ msgstr "Es werden viele Puffer verworfen."
 
 msgid "Internal data flow problem."
 msgstr "Internes Problem im Datenfluss."
-
-msgid "Internal data stream error."
-msgstr "Interner Fehler im Datenstrom."
 
 msgid "Internal data flow error."
 msgstr "Interner Fehler im Datenfluss."
@@ -1123,6 +1134,13 @@ msgstr ""
 
 msgid "List the plugin contents"
 msgstr "Die Inhalte des Plugins auflisten"
+
+msgid ""
+"A slashes ('/') separated list of types of elements (also known as klass) to "
+"list. (unordered)"
+msgstr ""
+"Eine mit Schrägstrichen »/« getrennte Liste von Elementtypen (auch bekannt "
+"als »klass«), die (unsortiert) aufgelistet werden soll."
 
 msgid "Check if the specified element or plugin exists"
 msgstr "Prüfen Sie, ob das angegebene Element oder Plugin vorhanden ist"
@@ -1350,6 +1368,12 @@ msgstr "Leitung wird auf NULL gesetzt ...\n"
 msgid "Freeing pipeline ...\n"
 msgstr "Leitung wird geleert ...\n"
 
+#~ msgid "bin"
+#~ msgstr "Behälter"
+
+#~ msgid "Internal data stream error."
+#~ msgstr "Interner Fehler im Datenstrom."
+
 #~ msgid "Do not output status information of TYPE"
 #~ msgstr "Zustandsinformation der Art ART nicht ausgeben"
 
@@ -1364,9 +1388,6 @@ msgstr "Leitung wird geleert ...\n"
 
 #~ msgid "no element to link URI \"%s\" to"
 #~ msgstr "Kein Element, um URI »%s« zu verbinden"
-
-#~ msgid "could not link sink element for URI \"%s\""
-#~ msgstr "Zielelement für URI »%s« nicht verknüpft werden"
 
 #~ msgid "maximum"
 #~ msgstr "Maximum"

@@ -21,6 +21,7 @@
 
 /**
  * SECTION:element-downloadbuffer
+ * @title: downloadbuffer
  *
  * The downloadbuffer element provides on-disk buffering and caching of, typically,
  * a network file. temp-template should be set to a value such as
@@ -42,15 +43,12 @@
  * When the downloadbuffer has completely downloaded the media, it will
  * post an application message named  <classname>&quot;GstCacheDownloadComplete&quot;</classname>
  * with the following information:
- * <itemizedlist>
- * <listitem>
- *   <para>
+ *
+ * *
  *   G_TYPE_STRING
  *   <classname>&quot;location&quot;</classname>:
  *   the location of the completely downloaded file.
- *   </para>
- * </listitem>
- * </itemizedlist>
+ *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -782,7 +780,8 @@ gst_download_buffer_read_buffer (GstDownloadBuffer * dlbuf, guint64 offset,
   else
     buf = *buffer;
 
-  gst_buffer_map (buf, &info, GST_MAP_WRITE);
+  if (!gst_buffer_map (buf, &info, GST_MAP_WRITE))
+    goto map_failed;
 
   GST_DEBUG_OBJECT (dlbuf, "Reading %u bytes from %" G_GUINT64_FORMAT, length,
       offset);
@@ -836,6 +835,14 @@ hit_eos:
   {
     GST_DEBUG_OBJECT (dlbuf, "EOS hit");
     return GST_FLOW_EOS;
+  }
+map_failed:
+  {
+    GST_ELEMENT_ERROR (dlbuf, RESOURCE, BUSY,
+        (_("Failed to map buffer.")), ("failed to map buffer in WRITE mode"));
+    if (*buffer == NULL)
+      gst_buffer_unref (buf);
+    return GST_FLOW_ERROR;
   }
 out_flushing:
   {
@@ -1115,8 +1122,7 @@ gst_download_buffer_handle_sink_query (GstPad * pad, GstObject * parent,
   switch (GST_QUERY_TYPE (query)) {
     default:
       if (GST_QUERY_IS_SERIALIZED (query)) {
-        GST_LOG_OBJECT (dlbuf, "received query %p", query);
-        GST_DEBUG_OBJECT (dlbuf, "refusing query, we are not using the dlbuf");
+        GST_DEBUG_OBJECT (dlbuf, "refusing serialized query %p", query);
         res = FALSE;
       } else {
         res = gst_pad_query_default (pad, parent, query);
@@ -1165,7 +1171,8 @@ gst_download_buffer_chain (GstPad * pad, GstObject * parent, GstBuffer * buffer)
         GST_BUFFER_OFFSET (buffer), offset);
   }
 
-  gst_buffer_map (buffer, &info, GST_MAP_READ);
+  if (!gst_buffer_map (buffer, &info, GST_MAP_READ))
+    goto map_error;
 
   GST_DEBUG_OBJECT (dlbuf, "Writing %" G_GSIZE_FORMAT " bytes to %"
       G_GUINT64_FORMAT, info.size, offset);
@@ -1250,8 +1257,17 @@ out_seeking:
     gst_buffer_unref (buffer);
     return GST_FLOW_OK;
   }
+map_error:
+  {
+    GST_DOWNLOAD_BUFFER_MUTEX_UNLOCK (dlbuf);
+    gst_buffer_unref (buffer);
+    GST_ELEMENT_ERROR (dlbuf, RESOURCE, BUSY,
+        (_("Failed to map buffer.")), ("failed to map buffer in READ mode"));
+    return GST_FLOW_ERROR;
+  }
 write_error:
   {
+    GST_DOWNLOAD_BUFFER_MUTEX_UNLOCK (dlbuf);
     gst_buffer_unmap (buffer, &info);
     gst_buffer_unref (buffer);
     GST_ELEMENT_ERROR (dlbuf, RESOURCE, WRITE,
@@ -1261,19 +1277,19 @@ write_error:
   }
 completed:
   {
+    GstMessage *complete_message;
+
     GST_LOG_OBJECT (dlbuf, "we completed the download");
     dlbuf->write_pos = dlbuf->upstream_size;
     dlbuf->filling = FALSE;
     update_levels (dlbuf, dlbuf->max_level.bytes);
     msg = update_buffering (dlbuf);
-
-    gst_element_post_message (GST_ELEMENT_CAST (dlbuf),
-        gst_message_new_element (GST_OBJECT_CAST (dlbuf),
-            gst_structure_new ("GstCacheDownloadComplete",
-                "location", G_TYPE_STRING, dlbuf->temp_location, NULL)));
-
+    complete_message = gst_message_new_element (GST_OBJECT_CAST (dlbuf),
+        gst_structure_new ("GstCacheDownloadComplete",
+            "location", G_TYPE_STRING, dlbuf->temp_location, NULL));
     GST_DOWNLOAD_BUFFER_MUTEX_UNLOCK (dlbuf);
 
+    gst_element_post_message (GST_ELEMENT_CAST (dlbuf), complete_message);
     if (msg != NULL)
       gst_element_post_message (GST_ELEMENT_CAST (dlbuf), msg);
 
@@ -1312,14 +1328,12 @@ gst_download_buffer_loop (GstPad * pad)
   /* update the buffering */
   msg = update_buffering (dlbuf);
 
-  g_atomic_int_set (&dlbuf->downstream_may_block, 1);
   GST_DOWNLOAD_BUFFER_MUTEX_UNLOCK (dlbuf);
 
   if (msg != NULL)
     gst_element_post_message (GST_ELEMENT_CAST (dlbuf), msg);
 
   ret = gst_pad_push (dlbuf->srcpad, buffer);
-  g_atomic_int_set (&dlbuf->downstream_may_block, 0);
 
   /* need to check for srcresult here as well */
   GST_DOWNLOAD_BUFFER_MUTEX_LOCK_CHECK (dlbuf, dlbuf->srcresult, out_flushing);
@@ -1345,10 +1359,7 @@ out_flushing:
        * file. */
       gst_pad_push_event (dlbuf->srcpad, gst_event_new_eos ());
     } else if ((ret == GST_FLOW_NOT_LINKED || ret < GST_FLOW_EOS)) {
-      GST_ELEMENT_ERROR (dlbuf, STREAM, FAILED,
-          (_("Internal data flow error.")),
-          ("streaming task paused, reason %s (%d)",
-              gst_flow_get_name (ret), ret));
+      GST_ELEMENT_FLOW_ERROR (dlbuf, ret);
       gst_pad_push_event (dlbuf->srcpad, gst_event_new_eos ());
     }
     return;
@@ -1437,9 +1448,13 @@ gst_download_buffer_handle_src_query (GstPad * pad, GstObject * parent,
       switch (format) {
         case GST_FORMAT_BYTES:
           peer_pos -= dlbuf->cur_level.bytes;
+          if (peer_pos < 0)     /* Clamp result to 0 */
+            peer_pos = 0;
           break;
         case GST_FORMAT_TIME:
           peer_pos -= dlbuf->cur_level.time;
+          if (peer_pos < 0)     /* Clamp result to 0 */
+            peer_pos = 0;
           break;
         default:
           GST_WARNING_OBJECT (dlbuf, "dropping query in %s format, don't "

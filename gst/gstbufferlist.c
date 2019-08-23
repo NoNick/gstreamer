@@ -23,6 +23,7 @@
 
 /**
  * SECTION:gstbufferlist
+ * @title: GstBufferList
  * @short_description: Lists of buffers for data-passing
  * @see_also: #GstPad, #GstMiniObject
  *
@@ -148,6 +149,9 @@ gst_buffer_list_new_sized (guint size)
   gsize slice_size;
   guint n_allocated;
 
+  if (size == 0)
+    size = 1;
+
   n_allocated = GST_ROUND_UP_16 (size);
 
   slice_size = sizeof (GstBufferList) + (n_allocated - 1) * sizeof (gpointer);
@@ -272,6 +276,9 @@ gst_buffer_list_foreach (GstBufferList * list, GstBufferListFunc func,
  *
  * Get the buffer at @idx.
  *
+ * You must make sure that @idx does not exceed the number of
+ * buffers available.
+ *
  * Returns: (transfer none) (nullable): the buffer at @idx in @group
  *     or %NULL when there is no buffer. The buffer remains valid as
  *     long as @list is valid and buffer is not removed from the list.
@@ -283,6 +290,35 @@ gst_buffer_list_get (GstBufferList * list, guint idx)
   g_return_val_if_fail (idx < list->n_buffers, NULL);
 
   return list->buffers[idx];
+}
+
+/**
+ * gst_buffer_list_get_writable:
+ * @list: a (writable) #GstBufferList
+ * @idx: the index
+ *
+ * Gets the buffer at @idx, ensuring it is a writable buffer.
+ *
+ * You must make sure that @idx does not exceed the number of
+ * buffers available.
+ *
+ * Returns: (transfer none) (nullable): the buffer at @idx in @group.
+ *     The returned  buffer remains valid as long as @list is valid and
+ *     the buffer is not removed from the list.
+ *
+ * Since: 1.14
+ */
+GstBuffer *
+gst_buffer_list_get_writable (GstBufferList * list, guint idx)
+{
+  GstBuffer **p_buf;
+
+  g_return_val_if_fail (GST_IS_BUFFER_LIST (list), NULL);
+  g_return_val_if_fail (gst_buffer_list_is_writable (list), NULL);
+  g_return_val_if_fail (idx < list->n_buffers, NULL);
+
+  p_buf = &list->buffers[idx];
+  return (*p_buf = gst_buffer_make_writable (*p_buf));
 }
 
 /**
@@ -402,4 +438,33 @@ gst_buffer_list_copy_deep (const GstBufferList * list)
   }
 
   return result;
+}
+
+/**
+ * gst_buffer_list_calculate_size:
+ * @list: a #GstBufferList
+ *
+ * Calculates the size of the data contained in buffer list by adding the
+ * size of all buffers.
+ *
+ * Returns: the size of the data contained in buffer list in bytes.
+ *
+ * Since: 1.14
+ */
+gsize
+gst_buffer_list_calculate_size (GstBufferList * list)
+{
+  GstBuffer **buffers;
+  gsize size = 0;
+  guint i, n;
+
+  g_return_val_if_fail (GST_IS_BUFFER_LIST (list), 0);
+
+  n = list->n_buffers;
+  buffers = list->buffers;
+
+  for (i = 0; i < n; ++i)
+    size += gst_buffer_get_size (buffers[i]);
+
+  return size;
 }

@@ -24,12 +24,6 @@
 # include "config.h"
 #endif
 
-#ifdef HAVE_VALGRIND_H
-# include <valgrind/valgrind.h>
-#else
-# define RUNNING_ON_VALGRIND FALSE
-#endif
-
 #include <gst/check/gstcheck.h>
 
 GST_START_TEST (test_subbuffer)
@@ -75,8 +69,6 @@ GST_START_TEST (test_subbuffer)
   fail_if (sub == NULL, "copy_region of buffer returned NULL");
   fail_unless (gst_buffer_map (sub, &sinfo, GST_MAP_READ));
   fail_unless (sinfo.size == 0, "subbuffer has wrong size");
-  fail_unless (memcmp (info.data + 1, sinfo.data, 0) == 0,
-      "subbuffer contains the wrong data");
   ASSERT_BUFFER_REFCOUNT (sub, "subbuffer", 1);
   gst_buffer_unmap (sub, &sinfo);
   gst_buffer_unref (sub);
@@ -466,20 +458,6 @@ GST_START_TEST (test_try_new_and_alloc)
   gst_buffer_unmap (buf, &info);
 
   gst_buffer_unref (buf);
-
-#if 0
-  /* Disabled this part of the test, because it happily succeeds on 64-bit
-   * machines that have enough memory+swap, because the address space is large
-   * enough. There's not really any way to test the failure case except by 
-   * allocating chunks of memory until it fails, which would suck. */
-
-  /* now this better fail (don't run in valgrind, it will abort
-   * or warn when passing silly arguments to malloc) */
-  if (!RUNNING_ON_VALGRIND) {
-    buf = gst_buffer_new_and_alloc ((guint) - 1);
-    fail_unless (buf == NULL);
-  }
-#endif
 }
 
 GST_END_TEST;

@@ -102,6 +102,7 @@ struct _GstQueue2
 
   GCond query_handled;
   gboolean last_query; /* result of last serialized query */
+  GstQuery *last_handled_query;
 
   GstQueue2Size cur_level;       /* currently in the queue */
   GstQueue2Size max_level;       /* max. amount of data allowed in the queue */
@@ -109,8 +110,10 @@ struct _GstQueue2
   gboolean use_tags_bitrate;
   gboolean use_rate_estimate;
   GstClockTime buffering_interval;
-  gint low_percent;             /* low/high watermarks for buffering */
-  gint high_percent;
+
+  /* low/high watermarks for buffering */
+  gint low_watermark;
+  gint high_watermark;
 
   /* current buffering state */
   gboolean is_buffering;

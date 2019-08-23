@@ -21,10 +21,11 @@
 
 /**
  * SECTION:gsttracer
+ * @title: GstTracer
  * @short_description: Tracing base class
  *
  * Tracing modules will subclass #GstTracer and register through
- * gst_tracing_register(). Modules can attach to various hook-types - see
+ * gst_tracer_register(). Modules can attach to various hook-types - see
  * gst_tracing_register_hook(). When invoked they receive hook specific
  * contextual data, which they must not modify.
  *
@@ -168,7 +169,7 @@ gst_tracer_register (GstPlugin * plugin, const gchar * name, GType type)
     return TRUE;
   }
 
-  factory = g_object_newv (GST_TYPE_TRACER_FACTORY, 0, NULL);
+  factory = g_object_new (GST_TYPE_TRACER_FACTORY, NULL);
   GST_DEBUG_OBJECT (factory, "new tracer factory for %s", name);
 
   gst_plugin_feature_set_name (GST_PLUGIN_FEATURE_CAST (factory), name);

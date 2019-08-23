@@ -21,6 +21,7 @@
 
 /**
  * SECTION:gstdeviceprovider
+ * @title: GstDeviceProvider
  * @short_description: A device provider
  * @see_also: #GstDevice, #GstDeviceMonitor
  *
@@ -74,7 +75,6 @@ GQuark __gst_deviceproviderclass_factory = 0;
 static void gst_device_provider_class_init (GstDeviceProviderClass * klass);
 static void gst_device_provider_init (GstDeviceProvider * element);
 static void gst_device_provider_base_class_init (gpointer g_class);
-static void gst_device_provider_base_class_finalize (gpointer g_class);
 static void gst_device_provider_dispose (GObject * object);
 static void gst_device_provider_finalize (GObject * object);
 
@@ -90,7 +90,7 @@ gst_device_provider_get_type (void)
     static const GTypeInfo element_info = {
       sizeof (GstDeviceProviderClass),
       gst_device_provider_base_class_init,
-      gst_device_provider_base_class_finalize,
+      NULL,                     /* base_class_finalize */
       (GClassInitFunc) gst_device_provider_class_init,
       NULL,
       NULL,
@@ -124,14 +124,6 @@ gst_device_provider_base_class_init (gpointer g_class)
 
   klass->factory = g_type_get_qdata (G_TYPE_FROM_CLASS (klass),
       __gst_deviceproviderclass_factory);
-}
-
-static void
-gst_device_provider_base_class_finalize (gpointer g_class)
-{
-  GstDeviceProviderClass *klass = GST_DEVICE_PROVIDER_CLASS (g_class);
-
-  gst_structure_free (klass->metadata);
 }
 
 static void
@@ -261,7 +253,8 @@ gst_device_provider_class_add_static_metadata (GstDeviceProviderClass * klass,
  * multiple author metadata. E.g: "Joe Bloggs &lt;joe.blogs at foo.com&gt;"
  *
  * Sets the detailed information for a #GstDeviceProviderClass.
- * <note>This function is for use in _class_init functions only.</note>
+ *
+ * > This function is for use in _class_init functions only.
  *
  * Since: 1.4
  */
@@ -297,7 +290,8 @@ gst_device_provider_class_set_metadata (GstDeviceProviderClass * klass,
  * foo.com&gt;"
  *
  * Sets the detailed information for a #GstDeviceProviderClass.
- * <note>This function is for use in _class_init functions only.</note>
+ *
+ * > This function is for use in _class_init functions only.
  *
  * Same as gst_device_provider_class_set_metadata(), but @longname, @classification,
  * @description, and @author must be static strings or inlined strings, as
@@ -343,7 +337,7 @@ gst_device_provider_class_set_static_metadata (GstDeviceProviderClass * klass,
  *
  * Get metadata with @key in @klass.
  *
- * Returns: the metadata for @key.
+ * Returns: (nullable): the metadata for @key.
  *
  * Since: 1.4
  */
@@ -355,6 +349,29 @@ gst_device_provider_class_get_metadata (GstDeviceProviderClass * klass,
   g_return_val_if_fail (key != NULL, NULL);
 
   return gst_structure_get_string ((GstStructure *) klass->metadata, key);
+}
+
+/**
+ * gst_device_provider_get_metadata:
+ * @provider: provider to get metadata for
+ * @key: the key to get
+ *
+ * Get metadata with @key in @provider.
+ *
+ * Returns: the metadata for @key.
+ *
+ * Since: 1.14
+ */
+const gchar *
+gst_device_provider_get_metadata (GstDeviceProvider * provider,
+    const gchar * key)
+{
+  g_return_val_if_fail (GST_IS_DEVICE_PROVIDER (provider), NULL);
+  g_return_val_if_fail (key != NULL, NULL);
+
+  return
+      gst_device_provider_class_get_metadata (GST_DEVICE_PROVIDER_GET_CLASS
+      (provider), key);
 }
 
 /**
@@ -427,6 +444,7 @@ gst_device_provider_start (GstDeviceProvider * provider)
   g_mutex_lock (&provider->priv->start_lock);
 
   if (provider->priv->started_count > 0) {
+    provider->priv->started_count++;
     ret = TRUE;
     goto started;
   }
@@ -549,12 +567,15 @@ gst_device_provider_get_bus (GstDeviceProvider * provider)
 /**
  * gst_device_provider_device_add:
  * @provider: a #GstDeviceProvider
- * @device: (transfer full): a #GstDevice that has been added
+ * @device: (transfer floating): a #GstDevice that has been added
  *
  * Posts a message on the provider's #GstBus to inform applications that
  * a new device has been added.
  *
  * This is for use by subclasses.
+ *
+ * @device's reference count will be incremented, and any floating reference
+ * will be removed (see gst_object_ref_sink()).
  *
  * Since: 1.4
  */
@@ -574,8 +595,10 @@ gst_device_provider_device_add (GstDeviceProvider * provider,
   }
 
   GST_OBJECT_LOCK (provider);
-  provider->devices = g_list_prepend (provider->devices,
-      gst_object_ref (device));
+  /* Take an additional reference so we can be sure nobody removed it from the
+   * provider in the meantime and we can safely emit the message */
+  gst_object_ref (device);
+  provider->devices = g_list_prepend (provider->devices, device);
   GST_OBJECT_UNLOCK (provider);
 
   message = gst_message_new_device_added (GST_OBJECT (provider), device);
@@ -720,7 +743,7 @@ gst_device_provider_unhide_provider (GstDeviceProvider * provider,
   gchar *unhidden_name = NULL;
 
   g_return_if_fail (GST_IS_DEVICE_PROVIDER (provider));
-  g_return_if_fail (unhidden_name != NULL);
+  g_return_if_fail (name != NULL);
 
   GST_OBJECT_LOCK (provider);
   find =

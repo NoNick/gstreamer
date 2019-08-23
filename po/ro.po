@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gstreamer 0.10.29.2\n"
 "Report-Msgid-Bugs-To: http://bugzilla.gnome.org/\n"
-"POT-Creation-Date: 2016-04-20 15:26+0300\n"
+"POT-Creation-Date: 2017-05-04 14:58+0300\n"
 "PO-Revision-Date: 2010-08-16 01:10+0300\n"
 "Last-Translator: Lucian Adrian Grijincu <lucian.grijincu@gmail.com>\n"
 "Language-Team: Romanian <translation-team-ro@lists.sourceforge.net>\n"
@@ -896,6 +896,18 @@ msgstr ""
 msgid "Delayed linking failed."
 msgstr ""
 
+#, fuzzy, c-format
+msgid "could not link %s to %s, %s can't handle caps %s"
+msgstr "nu se poate lega %s la %s"
+
+#, fuzzy, c-format
+msgid "could not link %s to %s, neither element can handle caps %s"
+msgstr "nu se poate lega elementul derivat pentru URI „%s”"
+
+#, fuzzy, c-format
+msgid "could not link %s to %s with caps %s"
+msgstr "nu se poate lega %s la %s"
+
 #, c-format
 msgid "could not link %s to %s"
 msgstr "nu se poate lega %s la %s"
@@ -927,9 +939,6 @@ msgstr "niciun element sursă pentru URI „%s”"
 msgid "syntax error"
 msgstr ""
 
-msgid "bin"
-msgstr ""
-
 #, c-format
 msgid "specified empty bin \"%s\", not allowed"
 msgstr "containerul gol „%s” specificat, nu este permis"
@@ -946,9 +955,6 @@ msgstr "Multe zone de memorie tampon sunt abandonate."
 
 msgid "Internal data flow problem."
 msgstr "Problemă internă de flux al datelor."
-
-msgid "Internal data stream error."
-msgstr "Eroare internă a fluxului de date."
 
 msgid "Internal data flow error."
 msgstr "Eroare internă de flux al datelor."
@@ -1125,6 +1131,11 @@ msgstr ""
 
 msgid "List the plugin contents"
 msgstr "Listează conținutul modulului de extensie"
+
+msgid ""
+"A slashes ('/') separated list of types of elements (also known as klass) to "
+"list. (unordered)"
+msgstr ""
 
 msgid "Check if the specified element or plugin exists"
 msgstr ""
@@ -1348,6 +1359,9 @@ msgstr "Se setează linia de asamblare pe NULL ...\n"
 msgid "Freeing pipeline ...\n"
 msgstr "Se eliberează linia de asamblare...\n"
 
+#~ msgid "Internal data stream error."
+#~ msgstr "Eroare internă a fluxului de date."
+
 #~ msgid "Do not output status information of TYPE"
 #~ msgstr "Nu scoate informații despre stările de TIPUL"
 
@@ -1362,9 +1376,6 @@ msgstr "Se eliberează linia de asamblare...\n"
 
 #~ msgid "no element to link URI \"%s\" to"
 #~ msgstr "niciun element pentru a lega URI „%s” la"
-
-#~ msgid "could not link sink element for URI \"%s\""
-#~ msgstr "nu se poate lega elementul derivat pentru URI „%s”"
 
 #~ msgid "Print alloc trace (if enabled at compile time)"
 #~ msgstr "Afișează căile de alocare (dacă s-a activat la momentul compilării)"

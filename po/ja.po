@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: gstreamer 1.0.3\n"
 "Report-Msgid-Bugs-To: http://bugzilla.gnome.org/\n"
-"POT-Creation-Date: 2016-04-20 15:26+0300\n"
+"POT-Creation-Date: 2017-05-04 14:58+0300\n"
 "PO-Revision-Date: 2013-08-20 14:56+0900\n"
 "Last-Translator: Makoto Kato <makoto.kt@gmail.com>\n"
 "Language-Team: Japanese <translation-team-ja@lists.sourceforge.net>\n"
@@ -838,6 +838,18 @@ msgstr ""
 msgid "Delayed linking failed."
 msgstr ""
 
+#, fuzzy, c-format
+msgid "could not link %s to %s, %s can't handle caps %s"
+msgstr "%s を %s へリンクできません"
+
+#, c-format
+msgid "could not link %s to %s, neither element can handle caps %s"
+msgstr ""
+
+#, fuzzy, c-format
+msgid "could not link %s to %s with caps %s"
+msgstr "%s を %s へリンクできません"
+
 #, c-format
 msgid "could not link %s to %s"
 msgstr "%s を %s へリンクできません"
@@ -869,9 +881,6 @@ msgstr "URI \"%s\" のソースエレメントがありません"
 msgid "syntax error"
 msgstr ""
 
-msgid "bin"
-msgstr ""
-
 #, c-format
 msgid "specified empty bin \"%s\", not allowed"
 msgstr ""
@@ -888,9 +897,6 @@ msgstr ""
 
 msgid "Internal data flow problem."
 msgstr ""
-
-msgid "Internal data stream error."
-msgstr "内部データストリームエラー"
 
 msgid "Internal data flow error."
 msgstr "内部データフローエラー"
@@ -1056,6 +1062,11 @@ msgid ""
 msgstr ""
 
 msgid "List the plugin contents"
+msgstr ""
+
+msgid ""
+"A slashes ('/') separated list of types of elements (also known as klass) to "
+"list. (unordered)"
 msgstr ""
 
 msgid "Check if the specified element or plugin exists"
@@ -1280,6 +1291,9 @@ msgstr ""
 #, fuzzy
 msgid "Freeing pipeline ...\n"
 msgstr "パイプラインを解放 (FREEING) しています...\n"
+
+#~ msgid "Internal data stream error."
+#~ msgstr "内部データストリームエラー"
 
 #~ msgid "Do not output status information of TYPE"
 #~ msgstr "TYPE のステータス情報を出力しない"

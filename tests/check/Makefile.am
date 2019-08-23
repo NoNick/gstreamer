@@ -39,9 +39,7 @@ endif
 # Do not run the abi test in case any option which causes the API to change has
 # been used
 if !GST_DISABLE_REGISTRY
-if !GST_DISABLE_TRACE
 ABI_CHECKS = gst/gstabi
-endif
 endif
 
 if !GST_DISABLE_GST_DEBUG
@@ -83,6 +81,7 @@ REGISTRY_CHECKS =				\
 	generic/sinks				\
 	elements/capsfilter			\
 	elements/concat				\
+	elements/dataurisrc			\
 	elements/fakesink			\
 	elements/fakesrc			\
 	elements/fdsrc			  	\
@@ -122,6 +121,7 @@ check_PROGRAMS =				\
 	gst/gstcapsfeatures    			\
 	$(CXX_CHECKS)			     	\
 	gst/gstdatetime     			\
+	gst/gstdeinit				\
 	gst/gstdevice				\
 	gst/gstinfo		 		\
 	gst/gstiterator 			\
@@ -134,9 +134,11 @@ check_PROGRAMS =				\
 	gst/gstpoll     			\
 	gst/gstprotection     			\
 	$(PRINTF_CHECKS)			\
+	gst/gstpromise				\
 	gst/gstsegment				\
 	gst/gstsystemclock			\
 	gst/gstclock				\
+	gst/gststream				\
 	gst/gststructure			\
 	gst/gsttag				\
 	gst/gsttracerrecord		 		\
@@ -150,6 +152,7 @@ check_PROGRAMS =				\
 	$(REGISTRY_CHECKS)			\
 	$(LIBSABI_CHECKS)		     	\
 	libs/adapter				\
+	libs/aggregator				\
 	libs/bitreader				\
 	libs/bytereader				\
 	libs/bytewriter				\
@@ -179,11 +182,13 @@ noinst_HEADERS = \
 	gst/capslist.h \
 	gst/struct_arm.h \
 	gst/struct_i386.h \
+	gst/struct_i386w.h \
 	gst/struct_hppa.h \
 	gst/struct_ppc32.h \
 	gst/struct_ppc64.h \
 	gst/struct_sparc.h \
 	gst/struct_x86_64.h \
+	gst/struct_x86_64w.h \
 	libs/struct_arm.h \
 	libs/struct_i386.h \
 	libs/struct_hppa.h \
@@ -195,7 +200,7 @@ noinst_HEADERS = \
 EXTRA_DIST = \
 	libs/test_transform.c
 
-AM_CFLAGS = $(GST_OBJ_CFLAGS) -UG_DISABLE_ASSERT -UG_DISABLE_CAST_CHECKS \
+AM_CFLAGS = $(PTHREAD_CFLAGS) $(GST_OBJ_CFLAGS) -UG_DISABLE_ASSERT -UG_DISABLE_CAST_CHECKS \
 	-DGST_CHECK_TEST_ENVIRONMENT_BEACON="\"GST_STATE_IGNORE_ELEMENTS\""
 AM_CXXFLAGS = $(GST_OBJ_CXXFLAGS) -UG_DISABLE_ASSERT -UG_DISABLE_CAST_CHECKS \
 	-DGST_CHECK_TEST_ENVIRONMENT_BEACON="\"GST_STATE_IGNORE_ELEMENTS\""
@@ -234,7 +239,7 @@ libs_gstnettimeprovider_LDADD = \
 # these just need valgrind fixing, period
 VALGRIND_TO_FIX = \
 	gst/gstinfo \
-	pipelines/parse-launch \
+	gst/gsttracerrecord \
 	tools/gstinspect
 
 VALGRIND_IGNORE = \

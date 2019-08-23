@@ -23,6 +23,7 @@
 
 /**
  * SECTION:gsttask
+ * @title: GstTask
  * @short_description: Abstraction of GStreamer streaming threads.
  * @see_also: #GstElement, #GstPad
  *
@@ -152,7 +153,7 @@ SetThreadName (DWORD dwThreadID, LPCSTR szThreadName)
 
   __try {
     RaiseException (0x406D1388, 0, sizeof (info) / sizeof (DWORD),
-        (DWORD *) & info);
+        (const ULONG_PTR *) &info);
   }
   __except (EXCEPTION_CONTINUE_EXECUTION) {
   }
@@ -170,6 +171,21 @@ static gboolean start_task (GstTask * task);
 }
 
 G_DEFINE_TYPE_WITH_CODE (GstTask, gst_task, GST_TYPE_OBJECT, _do_init);
+
+static void
+init_klass_pool (GstTaskClass * klass)
+{
+  g_mutex_lock (&pool_lock);
+  if (klass->pool) {
+    gst_task_pool_cleanup (klass->pool);
+    gst_object_unref (klass->pool);
+  }
+  klass->pool = gst_task_pool_new ();
+  /* Classes are never destroyed so this ref will never be dropped */
+  GST_OBJECT_FLAG_SET (klass->pool, GST_OBJECT_FLAG_MAY_BE_LEAKED);
+  gst_task_pool_prepare (klass->pool, NULL);
+  g_mutex_unlock (&pool_lock);
+}
 
 static void
 gst_task_class_init (GstTaskClass * klass)
@@ -206,6 +222,8 @@ gst_task_init (GstTask * task)
 
   /* clear floating flag */
   gst_object_ref_sink (task);
+
+  g_mutex_unlock (&pool_lock);
 }
 
 static void
@@ -406,6 +424,9 @@ gst_task_cleanup_all (void)
     gst_task_pool_cleanup (klass->pool);
     gst_task_pool_prepare (klass->pool, NULL);
   }
+
+  /* GstElement owns a GThreadPool */
+  _priv_gst_element_cleanup ();
 }
 
 /**
@@ -439,12 +460,15 @@ gst_task_new (GstTaskFunction func, gpointer user_data, GDestroyNotify notify)
 
   g_return_val_if_fail (func != NULL, NULL);
 
-  task = g_object_newv (GST_TYPE_TASK, 0, NULL);
+  task = g_object_new (GST_TYPE_TASK, NULL);
   task->func = func;
   task->user_data = user_data;
   task->notify = notify;
 
   GST_DEBUG ("Created task %p", task);
+
+  /* clear floating flag */
+  gst_object_ref_sink (task);
 
   return task;
 }

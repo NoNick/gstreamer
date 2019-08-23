@@ -36,7 +36,8 @@ variables like <envar>LANG</envar>, <envar>PATH</envar> or <envar>HOME</envar>.
 
   <para>
 
-This environment variable can be set to a colon-separated list of paths.
+This environment variable can be set to a colon-separated list of paths (or
+semicolon-separated list on Windows).
 If this variable is not set, GStreamer will fill in this list for you
 with
 <itemizedlist>
@@ -87,7 +88,8 @@ uninstalled (for development purposes) or while running testsuites.
   <title><envar>GST_PLUGIN_PATH</envar>, <envar>GST_PLUGIN_PATH_1_0</envar></title>
 
   <para>
-This environment variable can be set to a colon-separated list of paths.
+This environment variable can be set to a colon-separated list of paths (or a
+semicolon-separated list on Windows).
 GStreamer will scan these paths for GStreamer plug-ins.  These plug-ins will
 be loaded in addition to, and before, the plug-ins in the system paths.
   </para>
@@ -353,6 +355,12 @@ and have the dot files in that location.
 This will only work if the application in question makes these calls in
 strategic places (like when the pipeline state changes or an error occurs).
 gst-launch-&GST_API_VERSION; is one such application.
+  </para>
+  <para>
+When gst-launch-&GST_API_VERSION; changes state through NULL to PLAYING
+and back to NULL, a dot file is generated on each state change. To have
+gst-launch-&GST_API_VERSION; write a snapshot of the pipeline state, send
+a SIGHUP to the gst-launch-&GST_API_VERSION; process.
   </para>
   <para>
 These .dot files can then be turned into images using the 'dot' utility

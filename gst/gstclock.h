@@ -84,7 +84,7 @@ typedef gpointer GstClockID;
  *
  * Constant to define an undefined clock time.
  */
-#define GST_CLOCK_STIME_NONE             G_MININT64
+#define GST_CLOCK_STIME_NONE             ((GstClockTimeDiff)G_MININT64)
 /**
  * GST_CLOCK_STIME_IS_VALID:
  * @time: signed clock time to validate
@@ -95,31 +95,30 @@ typedef gpointer GstClockID;
  */
 #define GST_CLOCK_STIME_IS_VALID(time)   (((GstClockTimeDiff)(time)) != GST_CLOCK_STIME_NONE)
 
-/* FIXME: still need to explicitly force types on the defines below */
 /**
- * GST_SECOND: (value 1000000000) (type GstClockTime)
+ * GST_SECOND: (value 1000000000) (type GstClockTimeDiff)
  *
  * Constant that defines one GStreamer second.
  */
-#define GST_SECOND  (G_USEC_PER_SEC * G_GINT64_CONSTANT (1000))
+#define GST_SECOND  ((GstClockTimeDiff)(G_USEC_PER_SEC * G_GINT64_CONSTANT (1000)))
 /**
- * GST_MSECOND: (value 1000000) (type GstClockTime)
+ * GST_MSECOND: (value 1000000) (type GstClockTimeDiff)
  *
  * Constant that defines one GStreamer millisecond.
  */
-#define GST_MSECOND (GST_SECOND / G_GINT64_CONSTANT (1000))
+#define GST_MSECOND ((GstClockTimeDiff)(GST_SECOND / G_GINT64_CONSTANT (1000)))
 /**
- * GST_USECOND: (value 1000) (type GstClockTime)
+ * GST_USECOND: (value 1000) (type GstClockTimeDiff)
  *
  * Constant that defines one GStreamer microsecond.
  */
-#define GST_USECOND (GST_SECOND / G_GINT64_CONSTANT (1000000))
+#define GST_USECOND ((GstClockTimeDiff)(GST_SECOND / G_GINT64_CONSTANT (1000000)))
 /**
- * GST_NSECOND: (value 1) (type GstClockTime)
+ * GST_NSECOND: (value 1) (type GstClockTimeDiff)
  *
  * Constant that defines one GStreamer nanosecond
  */
-#define GST_NSECOND (GST_SECOND / G_GINT64_CONSTANT (1000000000))
+#define GST_NSECOND ((GstClockTimeDiff)(GST_SECOND / G_GINT64_CONSTANT (1000000000)))
 
 
 /**
@@ -176,9 +175,9 @@ typedef gpointer GstClockID;
  *
  * Convert a #GstClockTime to a #GTimeVal
  *
- * <note>on 32-bit systems, a timeval has a range of only 2^32 - 1 seconds,
- * which is about 68 years.  Expect trouble if you want to schedule stuff
- * in your pipeline for 2038.</note>
+ * > on 32-bit systems, a timeval has a range of only 2^32 - 1 seconds,
+ * > which is about 68 years.  Expect trouble if you want to schedule stuff
+ * > in your pipeline for 2038.
  */
 #define GST_TIME_TO_TIMEVAL(t,tv)                               \
 G_STMT_START {                                                  \
@@ -492,33 +491,47 @@ struct _GstClockClass {
   gpointer _gst_reserved[GST_PADDING];
 };
 
+GST_API
 GType                   gst_clock_get_type              (void);
 
+GST_API
 GstClockTime            gst_clock_set_resolution        (GstClock *clock,
                                                          GstClockTime resolution);
+GST_API
 GstClockTime            gst_clock_get_resolution        (GstClock *clock);
 
+GST_API
 GstClockTime            gst_clock_get_time              (GstClock *clock);
+
+GST_API
 void                    gst_clock_set_calibration       (GstClock *clock, GstClockTime internal,
                                                          GstClockTime external,
                                                          GstClockTime rate_num,
                                                          GstClockTime rate_denom);
+GST_API
 void                    gst_clock_get_calibration       (GstClock *clock, GstClockTime *internal,
                                                          GstClockTime *external,
                                                          GstClockTime *rate_num,
                                                          GstClockTime *rate_denom);
 
 /* master/slave clocks */
+
+GST_API
 gboolean                gst_clock_set_master            (GstClock *clock, GstClock *master);
+
+GST_API
 GstClock*               gst_clock_get_master            (GstClock *clock);
 
+GST_API
 void                    gst_clock_set_timeout           (GstClock *clock,
                                                          GstClockTime timeout);
+GST_API
 GstClockTime            gst_clock_get_timeout           (GstClock *clock);
 
+GST_API
 gboolean                gst_clock_add_observation       (GstClock *clock, GstClockTime slave,
                                                          GstClockTime master, gdouble *r_squared);
-
+GST_API
 gboolean                gst_clock_add_observation_unapplied (GstClock *clock, GstClockTime slave,
                                                          GstClockTime master, gdouble *r_squared,
                                                          GstClockTime *internal,
@@ -527,55 +540,85 @@ gboolean                gst_clock_add_observation_unapplied (GstClock *clock, Gs
                                                          GstClockTime *rate_denom);
 
 /* getting and adjusting internal/external time */
+
+GST_API
 GstClockTime            gst_clock_get_internal_time     (GstClock *clock);
+
+GST_API
 GstClockTime            gst_clock_adjust_unlocked       (GstClock *clock, GstClockTime internal);
+
+GST_API
 GstClockTime            gst_clock_adjust_with_calibration (GstClock *clock,
                                                          GstClockTime internal_target,
                                                          GstClockTime cinternal,
                                                          GstClockTime cexternal,
                                                          GstClockTime cnum,
                                                          GstClockTime cdenom);
+GST_API
 GstClockTime            gst_clock_unadjust_with_calibration (GstClock *clock,
                                                          GstClockTime external_target,
                                                          GstClockTime cinternal,
                                                          GstClockTime cexternal,
                                                          GstClockTime cnum,
                                                          GstClockTime cdenom);
+GST_API
 GstClockTime            gst_clock_unadjust_unlocked     (GstClock * clock, GstClockTime external);
 
 /* waiting for, signalling and checking for synchronization */
+
+GST_API
 gboolean                gst_clock_wait_for_sync         (GstClock * clock, GstClockTime timeout);
+
+GST_API
 gboolean                gst_clock_is_synced             (GstClock * clock);
 
 /* to be used by subclasses only */
+
+GST_API
 void                    gst_clock_set_synced            (GstClock * clock, gboolean synced);
 
 /* creating IDs that can be used to get notifications */
+
+GST_API
 GstClockID              gst_clock_new_single_shot_id    (GstClock *clock,
                                                          GstClockTime time);
+GST_API
 GstClockID              gst_clock_new_periodic_id       (GstClock *clock,
                                                          GstClockTime start_time,
                                                          GstClockTime interval);
 
 /* reference counting */
+
+GST_API
 GstClockID              gst_clock_id_ref                (GstClockID id);
+
+GST_API
 void                    gst_clock_id_unref              (GstClockID id);
 
 /* operations on IDs */
+
+GST_API
 gint                    gst_clock_id_compare_func       (gconstpointer id1, gconstpointer id2);
 
+GST_API
 GstClockTime            gst_clock_id_get_time           (GstClockID id);
+
+GST_API
 GstClockReturn          gst_clock_id_wait               (GstClockID id,
                                                          GstClockTimeDiff *jitter);
+GST_API
 GstClockReturn          gst_clock_id_wait_async         (GstClockID id,
                                                          GstClockCallback func,
                                                          gpointer user_data,
                                                          GDestroyNotify destroy_data);
+GST_API
 void                    gst_clock_id_unschedule         (GstClockID id);
 
+GST_API
 gboolean                gst_clock_single_shot_id_reinit (GstClock * clock,
                                                          GstClockID id,
                                                          GstClockTime time);
+GST_API
 gboolean                gst_clock_periodic_id_reinit    (GstClock * clock,
                                                          GstClockID id,
                                                          GstClockTime start_time,

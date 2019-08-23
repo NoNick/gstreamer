@@ -22,6 +22,7 @@
  */
 /**
  * SECTION:element-identity
+ * @title: identity
  *
  * Dummy element that passes incoming data through unmodified. It has some
  * useful diagnostic functions, such as offset and timestamp checking.
@@ -72,6 +73,8 @@ enum
 #define DEFAULT_CHECK_IMPERFECT_TIMESTAMP FALSE
 #define DEFAULT_CHECK_IMPERFECT_OFFSET    FALSE
 #define DEFAULT_SIGNAL_HANDOFFS           TRUE
+#define DEFAULT_TS_OFFSET               0
+#define DEFAULT_DROP_ALLOCATION         FALSE
 
 enum
 {
@@ -86,9 +89,11 @@ enum
   PROP_LAST_MESSAGE,
   PROP_DUMP,
   PROP_SYNC,
+  PROP_TS_OFFSET,
   PROP_CHECK_IMPERFECT_TIMESTAMP,
   PROP_CHECK_IMPERFECT_OFFSET,
-  PROP_SIGNAL_HANDOFFS
+  PROP_SIGNAL_HANDOFFS,
+  PROP_DROP_ALLOCATION
 };
 
 
@@ -197,6 +202,11 @@ gst_identity_class_init (GstIdentityClass * klass)
       g_param_spec_boolean ("sync", "Synchronize",
           "Synchronize to pipeline clock", DEFAULT_SYNC,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+  g_object_class_install_property (gobject_class, PROP_TS_OFFSET,
+      g_param_spec_int64 ("ts-offset", "Timestamp offset for synchronisation",
+          "Timestamp offset in nanoseconds for synchronisation, negative for earlier sync",
+          G_MININT64, G_MAXINT64, DEFAULT_TS_OFFSET,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
   g_object_class_install_property (gobject_class,
       PROP_CHECK_IMPERFECT_TIMESTAMP,
       g_param_spec_boolean ("check-imperfect-timestamp",
@@ -214,13 +224,18 @@ gst_identity_class_init (GstIdentityClass * klass)
   /**
    * GstIdentity:signal-handoffs
    *
-   * If set to #TRUE, the identity will emit a handoff signal when handling a buffer.
-   * When set to #FALSE, no signal will be emitted, which might improve performance.
+   * If set to %TRUE, the identity will emit a handoff signal when handling a buffer.
+   * When set to %FALSE, no signal will be emitted, which might improve performance.
    */
   g_object_class_install_property (gobject_class, PROP_SIGNAL_HANDOFFS,
       g_param_spec_boolean ("signal-handoffs",
           "Signal handoffs", "Send a signal before pushing the buffer",
           DEFAULT_SIGNAL_HANDOFFS, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+  g_object_class_install_property (gobject_class, PROP_DROP_ALLOCATION,
+      g_param_spec_boolean ("drop-allocation", "Drop allocation query",
+          "Don't forward allocation queries", DEFAULT_DROP_ALLOCATION,
+          G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /**
    * GstIdentity::handoff:
@@ -274,6 +289,7 @@ gst_identity_init (GstIdentity * identity)
   identity->dump = DEFAULT_DUMP;
   identity->last_message = NULL;
   identity->signal_handoffs = DEFAULT_SIGNAL_HANDOFFS;
+  identity->ts_offset = DEFAULT_TS_OFFSET;
   g_cond_init (&identity->blocked_cond);
 
   gst_base_transform_set_gap_aware (GST_BASE_TRANSFORM_CAST (identity), TRUE);
@@ -296,16 +312,34 @@ gst_identity_do_sync (GstIdentity * identity, GstClockTime running_time)
 
     GST_OBJECT_LOCK (identity);
 
+    if (identity->flushing) {
+      GST_OBJECT_UNLOCK (identity);
+      return GST_FLOW_FLUSHING;
+    }
+
     while (identity->blocked)
       g_cond_wait (&identity->blocked_cond, GST_OBJECT_GET_LOCK (identity));
 
+    if (identity->flushing) {
+      GST_OBJECT_UNLOCK (identity);
+      return GST_FLOW_FLUSHING;
+    }
 
     if ((clock = GST_ELEMENT (identity)->clock)) {
       GstClockReturn cret;
       GstClockTime timestamp;
+      GstClockTimeDiff ts_offset = identity->ts_offset;
 
       timestamp = running_time + GST_ELEMENT (identity)->base_time +
           identity->upstream_latency;
+      if (ts_offset < 0) {
+        ts_offset = -ts_offset;
+        if (ts_offset < timestamp)
+          timestamp -= ts_offset;
+        else
+          timestamp = 0;
+      } else
+        timestamp += ts_offset;
 
       /* save id if we need to unlock */
       identity->clock_id = gst_clock_new_single_shot_id (clock, timestamp);
@@ -318,8 +352,8 @@ gst_identity_do_sync (GstIdentity * identity, GstClockTime running_time)
         gst_clock_id_unref (identity->clock_id);
         identity->clock_id = NULL;
       }
-      if (cret == GST_CLOCK_UNSCHEDULED)
-        ret = GST_FLOW_EOS;
+      if (cret == GST_CLOCK_UNSCHEDULED || identity->flushing)
+        ret = GST_FLOW_FLUSHING;
     }
     GST_OBJECT_UNLOCK (identity);
   }
@@ -412,10 +446,15 @@ gst_identity_sink_event (GstBaseTransform * trans, GstEvent * event)
   } else {
     if (GST_EVENT_TYPE (event) == GST_EVENT_FLUSH_START) {
       GST_OBJECT_LOCK (identity);
+      identity->flushing = TRUE;
       if (identity->clock_id) {
         GST_DEBUG_OBJECT (identity, "unlock clock wait");
         gst_clock_id_unschedule (identity->clock_id);
       }
+      GST_OBJECT_UNLOCK (identity);
+    } else if (GST_EVENT_TYPE (event) == GST_EVENT_FLUSH_STOP) {
+      GST_OBJECT_LOCK (identity);
+      identity->flushing = FALSE;
       GST_OBJECT_UNLOCK (identity);
     }
 
@@ -537,23 +576,24 @@ gst_identity_update_last_message_for_buffer (GstIdentity * identity,
     const gchar * action, GstBuffer * buf, gsize size)
 {
   gchar dts_str[64], pts_str[64], dur_str[64];
-  gchar *flag_str;
+  gchar *flag_str, *meta_str;
 
   GST_OBJECT_LOCK (identity);
 
   flag_str = gst_buffer_get_flags_string (buf);
+  meta_str = gst_buffer_get_meta_string (buf);
 
   g_free (identity->last_message);
   identity->last_message = g_strdup_printf ("%s   ******* (%s:%s) "
       "(%" G_GSIZE_FORMAT " bytes, dts: %s, pts: %s, duration: %s, offset: %"
       G_GINT64_FORMAT ", " "offset_end: % " G_GINT64_FORMAT
-      ", flags: %08x %s) %p", action,
+      ", flags: %08x %s, meta: %s) %p", action,
       GST_DEBUG_PAD_NAME (GST_BASE_TRANSFORM_CAST (identity)->sinkpad), size,
       print_pretty_time (dts_str, sizeof (dts_str), GST_BUFFER_DTS (buf)),
       print_pretty_time (pts_str, sizeof (pts_str), GST_BUFFER_PTS (buf)),
       print_pretty_time (dur_str, sizeof (dur_str), GST_BUFFER_DURATION (buf)),
       GST_BUFFER_OFFSET (buf), GST_BUFFER_OFFSET_END (buf),
-      GST_BUFFER_FLAGS (buf), flag_str, buf);
+      GST_BUFFER_FLAGS (buf), flag_str, meta_str ? meta_str : "none", buf);
   g_free (flag_str);
 
   GST_OBJECT_UNLOCK (identity);
@@ -714,6 +754,9 @@ gst_identity_set_property (GObject * object, guint prop_id,
     case PROP_SYNC:
       identity->sync = g_value_get_boolean (value);
       break;
+    case PROP_TS_OFFSET:
+      identity->ts_offset = g_value_get_int64 (value);
+      break;
     case PROP_CHECK_IMPERFECT_TIMESTAMP:
       identity->check_imperfect_timestamp = g_value_get_boolean (value);
       break;
@@ -722,6 +765,9 @@ gst_identity_set_property (GObject * object, guint prop_id,
       break;
     case PROP_SIGNAL_HANDOFFS:
       identity->signal_handoffs = g_value_get_boolean (value);
+      break;
+    case PROP_DROP_ALLOCATION:
+      identity->drop_allocation = g_value_get_boolean (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -774,6 +820,9 @@ gst_identity_get_property (GObject * object, guint prop_id, GValue * value,
     case PROP_SYNC:
       g_value_set_boolean (value, identity->sync);
       break;
+    case PROP_TS_OFFSET:
+      identity->ts_offset = g_value_get_int64 (value);
+      break;
     case PROP_CHECK_IMPERFECT_TIMESTAMP:
       g_value_set_boolean (value, identity->check_imperfect_timestamp);
       break;
@@ -782,6 +831,9 @@ gst_identity_get_property (GObject * object, guint prop_id, GValue * value,
       break;
     case PROP_SIGNAL_HANDOFFS:
       g_value_set_boolean (value, identity->signal_handoffs);
+      break;
+    case PROP_DROP_ALLOCATION:
+      g_value_set_boolean (value, identity->drop_allocation);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -848,6 +900,12 @@ gst_identity_query (GstBaseTransform * base, GstPadDirection direction,
 
   identity = GST_IDENTITY (base);
 
+  if (GST_QUERY_TYPE (query) == GST_QUERY_ALLOCATION &&
+      identity->drop_allocation) {
+    GST_DEBUG_OBJECT (identity, "Dropping allocation query.");
+    return FALSE;
+  }
+
   ret = GST_BASE_TRANSFORM_CLASS (parent_class)->query (base, direction, query);
 
   if (GST_QUERY_TYPE (query) == GST_QUERY_LATENCY) {
@@ -892,6 +950,7 @@ gst_identity_change_state (GstElement * element, GstStateChange transition)
       break;
     case GST_STATE_CHANGE_READY_TO_PAUSED:
       GST_OBJECT_LOCK (identity);
+      identity->flushing = FALSE;
       identity->blocked = TRUE;
       GST_OBJECT_UNLOCK (identity);
       if (identity->sync)
@@ -905,6 +964,7 @@ gst_identity_change_state (GstElement * element, GstStateChange transition)
       break;
     case GST_STATE_CHANGE_PAUSED_TO_READY:
       GST_OBJECT_LOCK (identity);
+      identity->flushing = TRUE;
       if (identity->clock_id) {
         GST_DEBUG_OBJECT (identity, "unlock clock wait");
         gst_clock_id_unschedule (identity->clock_id);

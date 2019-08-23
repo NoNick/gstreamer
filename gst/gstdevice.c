@@ -21,6 +21,7 @@
 
 /**
  * SECTION:gstdevice
+ * @title: GstDevice
  * @short_description: Object representing a device
  * @see_also: #GstDeviceProvider
  *
@@ -195,10 +196,11 @@ gst_device_set_property (GObject * object, guint prop_id,
  * @name: (allow-none): name of new element, or %NULL to automatically
  * create a unique name.
  *
- * Creates the element with all of the required paramaters set to use
+ * Creates the element with all of the required parameters set to use
  * this device.
  *
- * Returns: (transfer full): a new #GstElement configured to use this device
+ * Returns: (transfer full) (nullable): a new #GstElement configured to use
+ * this device
  *
  * Since: 1.4
  */
@@ -221,7 +223,7 @@ gst_device_create_element (GstDevice * device, const gchar * name)
  *
  * Getter for the #GstCaps that this device supports.
  *
- * Returns: The #GstCaps supported by this device. Unref with
+ * Returns: (nullable): The #GstCaps supported by this device. Unref with
  * gst_caps_unref() when done.
  *
  * Since: 1.4
@@ -285,7 +287,7 @@ gst_device_get_device_class (GstDevice * device)
  *
  * Gets the extra properties of a device.
  *
- * Returns: The extra properties or %NULL when there are none.
+ * Returns: (nullable): The extra properties or %NULL when there are none.
  *          Free with gst_structure_free() after use.
  *
  * Since: 1.6

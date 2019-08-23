@@ -21,6 +21,7 @@
 
 /**
  * SECTION:gstallocator
+ * @title: GstAllocator
  * @short_description: allocate memory blocks
  * @see_also: #GstMemory
  *
@@ -158,13 +159,13 @@ gst_allocation_params_init (GstAllocationParams * params)
 
 /**
  * gst_allocation_params_copy:
- * @params: (transfer none): a #GstAllocationParams
+ * @params: (transfer none) (nullable): a #GstAllocationParams
  *
  * Create a copy of @params.
  *
  * Free-function: gst_allocation_params_free
  *
- * Returns: (transfer full): a new ##GstAllocationParams, free with
+ * Returns: (transfer full) (nullable): a new ##GstAllocationParams, free with
  * gst_allocation_params_free().
  */
 GstAllocationParams *
@@ -210,6 +211,8 @@ gst_allocator_register (const gchar * name, GstAllocator * allocator)
       allocator, name);
 
   g_rw_lock_writer_lock (&lock);
+  /* The ref will never be released */
+  GST_OBJECT_FLAG_SET (allocator, GST_OBJECT_FLAG_MAY_BE_LEAKED);
   g_hash_table_insert (allocators, (gpointer) name, (gpointer) allocator);
   g_rw_lock_writer_unlock (&lock);
 }
@@ -287,7 +290,7 @@ gst_allocator_set_default (GstAllocator * allocator)
  * the amount of bytes to align to. For example, to align to 8 bytes,
  * use an alignment of 7.
  *
- * Returns: (transfer full): a new #GstMemory.
+ * Returns: (transfer full) (nullable): a new #GstMemory.
  */
 GstMemory *
 gst_allocator_alloc (GstAllocator * allocator, gsize size,
@@ -358,7 +361,7 @@ typedef struct
   GstAllocatorClass parent_class;
 } GstAllocatorSysmemClass;
 
-GType gst_allocator_sysmem_get_type (void);
+static GType gst_allocator_sysmem_get_type (void);
 G_DEFINE_TYPE (GstAllocatorSysmem, gst_allocator_sysmem, GST_TYPE_ALLOCATOR);
 
 /* initialize the fields */
@@ -536,7 +539,11 @@ default_free (GstAllocator * allocator, GstMemory * mem)
 static void
 gst_allocator_sysmem_finalize (GObject * obj)
 {
-  g_warning ("The default memory allocator was freed!");
+  /* Don't raise warnings if we are shutting down */
+  if (_default_allocator)
+    g_warning ("The default memory allocator was freed!");
+
+  ((GObjectClass *) gst_allocator_sysmem_parent_class)->finalize (obj);
 }
 
 static void
@@ -573,7 +580,8 @@ void
 _priv_gst_allocator_initialize (void)
 {
   g_rw_lock_init (&lock);
-  allocators = g_hash_table_new (g_str_hash, g_str_equal);
+  allocators = g_hash_table_new_full (g_str_hash, g_str_equal, NULL,
+      gst_object_unref);
 
 #ifdef HAVE_GETPAGESIZE
 #ifdef MEMORY_ALIGNMENT_PAGESIZE
@@ -586,10 +594,25 @@ _priv_gst_allocator_initialize (void)
 
   _sysmem_allocator = g_object_new (gst_allocator_sysmem_get_type (), NULL);
 
+  /* Clear floating flag */
+  gst_object_ref_sink (_sysmem_allocator);
+
   gst_allocator_register (GST_ALLOCATOR_SYSMEM,
       gst_object_ref (_sysmem_allocator));
 
   _default_allocator = gst_object_ref (_sysmem_allocator);
+}
+
+void
+_priv_gst_allocator_cleanup (void)
+{
+  gst_object_unref (_sysmem_allocator);
+  _sysmem_allocator = NULL;
+
+  gst_object_unref (_default_allocator);
+  _default_allocator = NULL;
+
+  g_clear_pointer (&allocators, g_hash_table_unref);
 }
 
 /**
@@ -608,7 +631,7 @@ _priv_gst_allocator_initialize (void)
  * The prefix/padding must be filled with 0 if @flags contains
  * #GST_MEMORY_FLAG_ZERO_PREFIXED and #GST_MEMORY_FLAG_ZERO_PADDED respectively.
  *
- * Returns: (transfer full): a new #GstMemory.
+ * Returns: (transfer full) (nullable): a new #GstMemory.
  */
 GstMemory *
 gst_memory_new_wrapped (GstMemoryFlags flags, gpointer data,

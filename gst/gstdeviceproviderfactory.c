@@ -23,6 +23,7 @@
 
 /**
  * SECTION:gstdeviceproviderfactory
+ * @title: GstDeviceProviderFactory
  * @short_description: Create GstDeviceProviders from a factory
  * @see_also: #GstDeviceProvider, #GstPlugin, #GstPluginFeature, #GstPadTemplate.
  *
@@ -196,9 +197,7 @@ gst_device_provider_register (GstPlugin * plugin, const gchar * name,
     return TRUE;
   }
 
-  factory =
-      GST_DEVICE_PROVIDER_FACTORY_CAST (g_object_newv
-      (GST_TYPE_DEVICE_PROVIDER_FACTORY, 0, NULL));
+  factory = g_object_new (GST_TYPE_DEVICE_PROVIDER_FACTORY, NULL);
   gst_plugin_feature_set_name (GST_PLUGIN_FEATURE_CAST (factory), name);
   GST_LOG_OBJECT (factory, "Created new device providerfactory for type %s",
       g_type_name (type));
@@ -275,14 +274,15 @@ gst_device_provider_factory_get (GstDeviceProviderFactory * factory)
     goto no_type;
 
   device_provider = g_atomic_pointer_get (&newfactory->provider);
-  if (device_provider)
+  if (device_provider) {
+    gst_object_unref (factory);
     return gst_object_ref (device_provider);
+  }
 
   /* create an instance of the device provider, cast so we don't assert on NULL
    * also set name as early as we can
    */
-  device_provider = GST_DEVICE_PROVIDER_CAST (g_object_newv (factory->type, 0,
-          NULL));
+  device_provider = g_object_new (factory->type, NULL);
   if (G_UNLIKELY (device_provider == NULL))
     goto no_device_provider;
 
@@ -292,8 +292,12 @@ gst_device_provider_factory_get (GstDeviceProviderFactory * factory)
    * an device provider at the same moment
    */
   oclass = GST_DEVICE_PROVIDER_GET_CLASS (device_provider);
-  if (!g_atomic_pointer_compare_and_exchange (&oclass->factory, NULL, factory))
+  if (!g_atomic_pointer_compare_and_exchange (&oclass->factory, NULL, factory)) {
     gst_object_unref (factory);
+  } else {
+    /* This ref will never be dropped as the class is never destroyed */
+    GST_OBJECT_FLAG_SET (factory, GST_OBJECT_FLAG_MAY_BE_LEAKED);
+  }
 
   gst_object_ref_sink (device_provider);
 
@@ -492,7 +496,7 @@ gst_device_provider_factory_has_classesv (GstDeviceProviderFactory * factory,
     const gchar *found;
     guint len;
 
-    if (classes[0] == '\0')
+    if (classes[0][0] == '\0')
       continue;
 
     found = strstr (klass, classes[0]);

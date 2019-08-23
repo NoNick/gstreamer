@@ -1,39 +1,52 @@
+This is GStreamer core 1.14.5.
 
+<<<<<<< HEAD
 Release notes for GStreamer 1.8.1
 
 The GStreamer team is proud to announce the first bugfix release in the stable
 1.8 release series of your favourite cross-platform multimedia framework!
+=======
+The GStreamer team is pleased to announce another bug-fix release in the
+stable 1.x API series of your favourite cross-platform multimedia framework!
 
+The 1.14 release series adds new features on top of the 1.12 series and is
+part of the API and ABI-stable 1.x release series of the GStreamer multimedia
+framework.
+>>>>>>> official/1.14
 
+The 1.14 release series has now been superseded by the stable 1.16 series
+which was released on 19 April 2019 and should be backwards compatible. We
+recommend you upgrade to 1.16 at your earliest convenience.
+
+<<<<<<< HEAD
 This release only contains bugfixes and it is safe to update from 1.8.0. For a
 full list of bugfixes see Bugzilla.
 
 
 See /releases/1.8/
 for the full release notes.
+=======
+Full release notes can be found at:
+>>>>>>> official/1.14
 
+  https://gstreamer.freedesktop.org/releases/1.14/
 
-This module, gstreamer, only contains core functionality.
-For actual media playback, you will need other modules.
+Binaries for Android, iOS, Mac OS X and Windows will be provided shortly
+after the release.
 
-gst-plugins-base
-contains a basic set of well-supported plugins
-gst-plugins-good
-contains a set of well-supported plugins under our preferred license
-gst-plugins-ugly
-contains a set of well-supported plugins, but might pose problems for
-    distributors
-gst-plugins-bad
-contains a set of less supported plugins that haven't passed the
-    rigorous quality testing we expect, or are still missing documentation
-    and/or unit tests
-gst-libav
-contains a set of codecs plugins based on libav (formerly gst-ffmpeg)
+This module will not be very useful by itself and should be used in conjunction
+with other GStreamer modules for a complete multimedia experience.
 
+ - gstreamer: provides the core GStreamer libraries and some generic plugins
 
+ - gst-plugins-base: a basic set of well-supported plugins and additional
+                     media-specific GStreamer helper libraries for audio,
+                     video, rtsp, rtp, tags, OpenGL, etc.
 
-  
+ - gst-plugins-good: a set of well-supported plugins under our preferred
+                     license
 
+<<<<<<< HEAD
 Bugs fixed in this release
      
       * 727105 : doc: Drop reference to osssink / esdsink / etc, from gst-launch-1.0 man page
@@ -44,14 +57,40 @@ Bugs fixed in this release
       * 763757 : multiqueue: Make sure mq- > percent remains valid after modifying high-percent value
       * 765096 : baseparse: When initializing DTS from PTS, remember that we did so
       * 765260 : baseparse: regression with aac streams
+=======
+ - gst-plugins-ugly: a set of well-supported plugins which might pose
+                     problems for distributors
+
+ - gst-plugins-bad: a set of plugins of varying quality that have not made
+                    their way into one of core/base/good/ugly yet, for one
+                    reason or another. Many of these are are production quality
+                    elements, but may still be missing documentation or unit
+                    tests; others haven't passed the rigorous quality testing
+                    we expect yet.
+
+ - gst-libav: a set of codecs plugins based on the ffmpeg library. This is
+                    where you can find audio and video decoders and encoders
+                    for a wide variety of formats including H.264, AAC, etc.
+
+ - gstreamer-vaapi: hardware-accelerated video decoding and encoding using
+                    VA-API on Linux. Primarily for Intel graphics hardware.
+
+ - gst-omx: hardware-accelerated video decoding and encoding, primarily for
+                    embedded Linux systems that provide an OpenMax
+                    implementation layer such as the Raspberry Pi.
+
+ - gst-rtsp-server: library to serve files or streaming pipelines via RTSP
+
+ - gst-editing-services: library an plugins for non-linear editing
+>>>>>>> official/1.14
 
 ==== Download ====
 
 You can find source releases of gstreamer in the download
-directory: https://gstreamer.freedesktop.org/src/gstreamer/
+directory: https://gstreamer.freedesktop.org/src/
 
 The git repository and details how to clone it can be found at
-http://cgit.freedesktop.org/gstreamer/gstreamer/
+https://gitlab.freedesktop.org/gstreamer/
 
 ==== Homepage ====
 
@@ -59,10 +98,16 @@ The project's website is https://gstreamer.freedesktop.org/
 
 ==== Support and Bugs ====
 
-We use GNOME's bugzilla for bug reports and feature requests:
-http://bugzilla.gnome.org/enter_bug.cgi?product=GStreamer
+We have recently moved from GNOME Bugzilla to GitLab on freedesktop.org
+for bug reports and feature requests:
 
-Please submit patches via bugzilla as well.
+  https://gitlab.freedesktop.org/gstreamer
+
+Please submit patches via GitLab as well, in form of Merge Requests. See
+
+  https://gstreamer.freedesktop.org/documentation/contribute/
+
+for more details.
 
 For help and support, please subscribe to and send questions to the
 gstreamer-devel mailing list (see below for details).
@@ -76,6 +121,7 @@ from there (see link above).
 
 Interested developers of the core library, plugins, and applications should
 subscribe to the gstreamer-devel list.
+<<<<<<< HEAD
 
         
 Contributors to this release
@@ -86,3 +132,5 @@ Contributors to this release
       * Sebastian Dröge
       * Stian Selnes
  
+=======
+>>>>>>> official/1.14

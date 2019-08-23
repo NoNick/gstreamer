@@ -21,6 +21,7 @@
 
 /**
  * SECTION:gstbus
+ * @title: GstBus
  * @short_description: Asynchronous message bus subsystem
  * @see_also: #GstMessage, #GstElement
  *
@@ -78,6 +79,12 @@
 
 #include "gstbus.h"
 #include "glib-compat-private.h"
+
+#ifdef G_OS_WIN32
+#  ifndef EWOULDBLOCK
+#  define EWOULDBLOCK EAGAIN    /* This is just to placate gcc */
+#  endif
+#endif /* G_OS_WIN32 */
 
 #define GST_CAT_DEFAULT GST_CAT_BUS
 /* bus signals */
@@ -149,6 +156,8 @@ gst_bus_constructed (GObject * object)
     bus->priv->poll = gst_poll_new_timer ();
     gst_poll_get_read_gpollfd (bus->priv->poll, &bus->priv->pollfd);
   }
+
+  G_OBJECT_CLASS (gst_bus_parent_class)->constructed (object);
 }
 
 static void
@@ -220,9 +229,6 @@ gst_bus_init (GstBus * bus)
   g_mutex_init (&bus->priv->queue_lock);
   bus->priv->queue = gst_atomic_queue_new (32);
 
-  /* clear floating flag */
-  gst_object_ref_sink (bus);
-
   GST_DEBUG_OBJECT (bus, "created");
 }
 
@@ -276,8 +282,11 @@ gst_bus_new (void)
 {
   GstBus *result;
 
-  result = g_object_newv (gst_bus_get_type (), 0, NULL);
+  result = g_object_new (gst_bus_get_type (), NULL);
   GST_DEBUG_OBJECT (result, "created new bus");
+
+  /* clear floating flag */
+  gst_object_ref_sink (result);
 
   return result;
 }
@@ -513,8 +522,24 @@ gst_bus_timed_pop_filtered (GstBus * bus, GstClockTime timeout,
         gst_atomic_queue_length (bus->priv->queue));
 
     while ((message = gst_atomic_queue_pop (bus->priv->queue))) {
-      if (bus->priv->poll)
-        gst_poll_read_control (bus->priv->poll);
+      if (bus->priv->poll) {
+        while (!gst_poll_read_control (bus->priv->poll)) {
+          if (errno == EWOULDBLOCK) {
+            /* Retry, this can happen if pushing to the queue has finished,
+             * popping here succeeded but writing control did not finish
+             * before we got to this line. */
+            /* Give other threads the chance to do something */
+            g_thread_yield ();
+            continue;
+          } else {
+            /* This is a real error and means that either the bus is in an
+             * inconsistent state, or the GstPoll is invalid. GstPoll already
+             * prints a critical warning about this, no need to do that again
+             * ourselves */
+            break;
+          }
+        }
+      }
 
       GST_DEBUG_OBJECT (bus, "got message %p, %s from %s, type mask is %u",
           message, GST_MESSAGE_TYPE_NAME (message),
@@ -736,6 +761,31 @@ no_replace:
   }
 }
 
+/**
+ * gst_bus_get_pollfd:
+ * @bus: A #GstBus
+ * @fd: A GPollFD to fill
+ *
+ * Gets the file descriptor from the bus which can be used to get notified about
+ * messages being available with functions like g_poll(), and allows integration
+ * into other event loops based on file descriptors.
+ * Whenever a message is available, the POLLIN / %G_IO_IN event is set.
+ *
+ * Warning: NEVER read or write anything to the returned fd but only use it
+ * for getting notifications via g_poll() or similar and then use the normal
+ * GstBus API, e.g. gst_bus_pop().
+ *
+ * Since: 1.14
+ */
+void
+gst_bus_get_pollfd (GstBus * bus, GPollFD * fd)
+{
+  g_return_if_fail (GST_IS_BUS (bus));
+  g_return_if_fail (bus->priv->poll != NULL);
+
+  *fd = bus->priv->pollfd;
+}
+
 /* GSource for the bus
  */
 typedef struct
@@ -838,7 +888,7 @@ static GSourceFuncs gst_bus_source_funcs = {
  * a message is on the bus. After the GSource is dispatched, the
  * message is popped off the bus and unreffed.
  *
- * Returns: (transfer full): a #GSource that can be added to a mainloop.
+ * Returns: (transfer full) (nullable): a #GSource that can be added to a mainloop.
  */
 GSource *
 gst_bus_create_watch (GstBus * bus)
@@ -924,6 +974,9 @@ gst_bus_add_watch_full_unlocked (GstBus * bus, gint priority,
  * from @func. If the watch was added to the default main context it is also
  * possible to remove the watch using g_source_remove().
  *
+ * The bus watch will take its own reference to the @bus, so it is safe to unref
+ * @bus using gst_object_unref() after setting the bus watch.
+ *
  * MT safe.
  *
  * Returns: The event source id or 0 if @bus already got an event source.
@@ -965,9 +1018,12 @@ gst_bus_add_watch_full (GstBus * bus, gint priority,
  * from @func. If the watch was added to the default main context it is also
  * possible to remove the watch using g_source_remove().
  *
- * Returns: The event source id or 0 if @bus already got an event source.
+ * The bus watch will take its own reference to the @bus, so it is safe to unref
+ * @bus using gst_object_unref() after setting the bus watch.
  *
  * MT safe.
+ *
+ * Returns: The event source id or 0 if @bus already got an event source.
  */
 guint
 gst_bus_add_watch (GstBus * bus, GstBusFunc func, gpointer user_data)
@@ -990,7 +1046,7 @@ gst_bus_add_watch (GstBus * bus, GstBusFunc func, gpointer user_data)
 gboolean
 gst_bus_remove_watch (GstBus * bus)
 {
-  GSource *watch_id;
+  GSource *source;
 
   g_return_val_if_fail (GST_IS_BUS (bus), FALSE);
 
@@ -998,18 +1054,28 @@ gst_bus_remove_watch (GstBus * bus)
 
   if (bus->priv->signal_watch == NULL) {
     GST_ERROR_OBJECT (bus, "no bus watch was present");
-    goto no_watch;
+    goto error;
   }
 
-  watch_id = bus->priv->signal_watch;
+  if (bus->priv->num_signal_watchers > 0) {
+    GST_ERROR_OBJECT (bus,
+        "trying to remove signal watch with gst_bus_remove_watch()");
+    goto error;
+  }
+
+  source =
+      bus->priv->signal_watch ? g_source_ref (bus->priv->signal_watch) : NULL;
 
   GST_OBJECT_UNLOCK (bus);
 
-  g_source_destroy (watch_id);
+  if (source) {
+    g_source_destroy (source);
+    g_source_unref (source);
+  }
 
   return TRUE;
 
-no_watch:
+error:
   GST_OBJECT_UNLOCK (bus);
 
   return FALSE;
@@ -1399,13 +1465,16 @@ gst_bus_remove_signal_watch (GstBus * bus)
   GST_DEBUG_OBJECT (bus, "removing signal watch %u",
       g_source_get_id (bus->priv->signal_watch));
 
-  source = bus->priv->signal_watch;
+  source =
+      bus->priv->signal_watch ? g_source_ref (bus->priv->signal_watch) : NULL;
 
 done:
   GST_OBJECT_UNLOCK (bus);
 
-  if (source)
+  if (source) {
     g_source_destroy (source);
+    g_source_unref (source);
+  }
 
   return;
 

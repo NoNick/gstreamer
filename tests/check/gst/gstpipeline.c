@@ -586,7 +586,11 @@ GST_START_TEST (test_pipeline_reset_start_time)
   fakesrc = gst_element_factory_make ("fakesrc", "fakesrc");
   fakesink = gst_element_factory_make ("fakesink", "fakesink");
 
-  g_object_set (fakesrc, "do-timestamp", TRUE, "format", GST_FORMAT_TIME, NULL);
+  /* no more than 100 buffers per second */
+  g_object_set (fakesrc, "do-timestamp", TRUE, "format", GST_FORMAT_TIME,
+      "sizetype", 2, "sizemax", 4096, "datarate", 4096 * 100, NULL);
+
+  g_object_set (fakesink, "sync", TRUE, NULL);
 
   fail_unless (pipeline && fakesrc && fakesink);
 
@@ -615,7 +619,9 @@ GST_START_TEST (test_pipeline_reset_start_time)
   /* We waited 50ms, so the position should be now >= 50ms */
   fail_unless (gst_element_query_position (fakesink, GST_FORMAT_TIME,
           &position));
-  fail_unless (position >= 50 * GST_MSECOND);
+  fail_unless (position >= 50 * GST_MSECOND,
+      "Pipeline position is not at least 50millisecond (reported %"
+      G_GUINT64_FORMAT " nanoseconds)", position);
 
   fail_unless_equals_int (gst_element_set_state (pipeline, GST_STATE_PAUSED),
       GST_STATE_CHANGE_ASYNC);

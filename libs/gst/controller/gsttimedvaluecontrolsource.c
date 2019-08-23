@@ -24,6 +24,7 @@
 
 /**
  * SECTION:gsttimedvaluecontrolsource
+ * @title: GstTimedValueControlSource
  * @short_description: timed value control source base class
  *
  * Base class for #GstControlSource that use time-stamped values.
@@ -63,14 +64,13 @@ enum
 
 static guint gst_timed_value_control_source_signals[LAST_SIGNAL] = { 0 };
 
-/*
+/**
  * gst_control_point_free:
- * @prop: the object to free
+ * @cp: the object to free
  *
- * Private method which frees all data allocated by a #GstControlPoint
- * instance.
+ * Frees all data allocated by a #GstControlPoint instance.
  */
-static void
+void
 gst_control_point_free (GstControlPoint * cp)
 {
   g_return_if_fail (cp);
@@ -78,10 +78,10 @@ gst_control_point_free (GstControlPoint * cp)
   g_slice_free (GstControlPoint, cp);
 }
 
-static gpointer
-gst_control_point_copy (GstControlPoint * boxed)
+GstControlPoint *
+gst_control_point_copy (GstControlPoint * cp)
 {
-  return g_slice_dup (GstControlPoint, boxed);
+  return g_slice_dup (GstControlPoint, cp);
 }
 
 GType

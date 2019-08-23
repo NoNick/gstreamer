@@ -19,6 +19,7 @@
 
 /**
  * SECTION:gstcaps
+ * @title: GstCaps
  * @short_description: Structure describing sets of media formats
  * @see_also: #GstStructure, #GstMiniObject
  *
@@ -143,6 +144,15 @@ _priv_gst_caps_initialize (void)
 
   g_value_register_transform_func (_gst_caps_type,
       G_TYPE_STRING, gst_caps_transform_to_string);
+}
+
+void
+_priv_gst_caps_cleanup (void)
+{
+  gst_caps_unref (_gst_caps_any);
+  _gst_caps_any = NULL;
+  gst_caps_unref (_gst_caps_none);
+  _gst_caps_none = NULL;
 }
 
 GstCapsFeatures *
@@ -385,9 +395,10 @@ G_DEFINE_POINTER_TYPE (GstStaticCaps, gst_static_caps);
  *
  * Converts a #GstStaticCaps to a #GstCaps.
  *
- * Returns: (transfer full): a pointer to the #GstCaps. Unref after usage.
- *     Since the core holds an additional ref to the returned caps,
- *     use gst_caps_make_writable() on the returned caps to modify it.
+ * Returns: (transfer full) (nullable): a pointer to the #GstCaps. Unref
+ *     after usage. Since the core holds an additional ref to the
+ *     returned caps, use gst_caps_make_writable() on the returned caps
+ *     to modify it.
  */
 GstCaps *
 gst_static_caps_get (GstStaticCaps * static_caps)
@@ -415,8 +426,13 @@ gst_static_caps_get (GstStaticCaps * static_caps)
     *caps = gst_caps_from_string (string);
 
     /* convert to string */
-    if (G_UNLIKELY (*caps == NULL))
+    if (G_UNLIKELY (*caps == NULL)) {
       g_critical ("Could not convert static caps \"%s\"", string);
+      goto done;
+    }
+
+    /* Caps generated from static caps are usually leaked */
+    GST_MINI_OBJECT_FLAG_SET (*caps, GST_MINI_OBJECT_FLAG_MAY_BE_LEAKED);
 
     GST_CAT_TRACE (GST_CAT_CAPS, "created %p from string %s", static_caps,
         string);
@@ -498,8 +514,8 @@ gst_caps_remove_and_get_structure (GstCaps * caps, guint idx)
  * Retrieves the structure with the given index from the list of structures
  * contained in @caps. The caller becomes the owner of the returned structure.
  *
- * Returns: (transfer full): a pointer to the #GstStructure corresponding
- *     to @index.
+ * Returns: (transfer full) (nullable): a pointer to the #GstStructure
+ *     corresponding to @index.
  */
 GstStructure *
 gst_caps_steal_structure (GstCaps * caps, guint index)
@@ -841,8 +857,8 @@ gst_caps_get_structure (const GstCaps * caps, guint index)
  * You do not need to free or unref the structure returned, it
  * belongs to the #GstCaps.
  *
- * Returns: (transfer none): a pointer to the #GstCapsFeatures corresponding
- *     to @index
+ * Returns: (transfer none) (nullable): a pointer to the #GstCapsFeatures
+ *     corresponding to @index
  *
  * Since: 1.2
  */
@@ -1754,8 +1770,8 @@ gst_caps_structure_subtract (GSList ** into, const GstStructure * minuend,
  * @subtrahend: #GstCaps to subtract
  *
  * Subtracts the @subtrahend from the @minuend.
- * <note>This function does not work reliably if optional properties for caps
- * are included on one caps and omitted on the other.</note>
+ * > This function does not work reliably if optional properties for caps
+ * > are included on one caps and omitted on the other.
  *
  * Returns: (transfer full): the resulting caps
  */
@@ -2346,7 +2362,7 @@ gst_caps_from_string_inplace (GstCaps * caps, const gchar * string)
  * The current implementation of serialization will lead to unexpected results
  * when there are nested #GstCaps / #GstStructure deeper than one level.
  *
- * Returns: (transfer full): a newly allocated #GstCaps
+ * Returns: (transfer full) (nullable): a newly allocated #GstCaps
  */
 GstCaps *
 gst_caps_from_string (const gchar * string)

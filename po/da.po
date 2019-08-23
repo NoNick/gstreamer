@@ -1,21 +1,24 @@
 # translation of gstreamer to Danish
-# Copyright (C) 2015 Free Software Foundation, Inc.
+# Copyright (C) 2017 Free Software Foundation, Inc.
 # This file is distributed under the same license as the gstreamer package.
 # Mogens Jaeger <mogensjaeger@gmail.com>, 2007, 2010, 2013, 2014.
-# Joe Hansen <joedalton2@yahoo.dk>, 2015, 2016.
+# Joe Hansen <joedalton2@yahoo.dk>, 2015, 2016, 2017.
+#
+# conductor -> dirigent (https://lists.freedesktop.org/archives/gstreamer-commits/2016-February/092542.html)
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: gstreamer 1.7.90\n"
+"Project-Id-Version: gstreamer 1.12.0\n"
 "Report-Msgid-Bugs-To: http://bugzilla.gnome.org/\n"
-"POT-Creation-Date: 2016-04-20 15:26+0300\n"
-"PO-Revision-Date: 2016-03-27 13:26+0200\n"
+"POT-Creation-Date: 2018-02-15 11:27+0000\n"
+"PO-Revision-Date: 2017-05-21 13:26+0200\n"
 "Last-Translator: Joe Hansen <joedalton2@yahoo.dk>\n"
 "Language-Team: Danish <dansk@dansk-gruppen.dk>\n"
 "Language: da\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"X-Bugs: Report translation errors to the Language-Team address.\n"
 "Plural-Forms:  nplurals=2; plural=(n != 1);\n"
 "X-Generator: Lokalize 1.5\n"
 
@@ -455,10 +458,14 @@ msgid "person(s) who composed the recording"
 msgstr "person(er) der komponerede optagelsen"
 
 msgid "conductor"
-msgstr "konduktør"
+msgstr "dirigent"
 
+# Jeg tror "refinement" refererer til at de skelner bedre mellem hvem
+# der dirigerer og opfører.  F.eks. står der oftest navne på dirigent
+# samt solister i koncerter, og/eller de vigtigste sangere (opera osv.)
+# Måske man kan erstatte det med -angivelse eller noget andet indirekte.  Ideer?
 msgid "conductor/performer refinement"
-msgstr "konduktør/optrædende-raffinement"
+msgstr "dirigent/opfører-angivelse"
 
 msgid "duration"
 msgstr "varighed"
@@ -857,7 +864,7 @@ msgstr "Henvisningen har ingen kilde [sink=%s@%p]"
 
 #, c-format
 msgid "link has no sink [source=%s@%p]"
-msgstr "Henvisningen har ingen datakanal [kilde=%s@%p]"
+msgstr "Henvisningen har ingen destination [kilde=%s@%p]"
 
 #, c-format
 msgid "no property \"%s\" in element \"%s\""
@@ -869,6 +876,20 @@ msgstr "kunne ikke sætte egenskab \"%s\" for element \"%s\" til \"%s\""
 
 msgid "Delayed linking failed."
 msgstr "Forsinket oprettelse af forbindelse mislykkedes."
+
+#, c-format
+msgid "could not link %s to %s, %s can't handle caps %s"
+msgstr "kunne ikke lænke %s til %s, %s kan ikke håndtere store bogstaver %s"
+
+#, c-format
+msgid "could not link %s to %s, neither element can handle caps %s"
+msgstr ""
+"kunne ikke lænke %s til %s, ingen af elementerne kan håndtere store "
+"bogstaver %s"
+
+#, c-format
+msgid "could not link %s to %s with caps %s"
+msgstr "kunne ikke lænke %s til %s med store bogstaver %s"
 
 #, c-format
 msgid "could not link %s to %s"
@@ -901,9 +922,6 @@ msgstr "intet kildeelement for URI \"%s\""
 msgid "syntax error"
 msgstr "syntaksfejl"
 
-msgid "bin"
-msgstr "lager"
-
 #, c-format
 msgid "specified empty bin \"%s\", not allowed"
 msgstr "specificeret tomt lager \"%s\", er ikke tilladt"
@@ -921,17 +939,17 @@ msgstr "En masse af bufferens indhold smides væk."
 msgid "Internal data flow problem."
 msgstr "Intern datastrømsproblem."
 
-msgid "Internal data stream error."
-msgstr "Intern datastrømsfejl."
-
 msgid "Internal data flow error."
 msgstr "Intern datastrømsfejl."
 
 msgid "Internal clock error."
 msgstr "Fejl i internt ur."
 
+# Ingen idé om hvad de mener med map her, men "behandling" eller
+# muligvis kortlægge kunne også dække.  Men det kan sagtens ske at
+# oversætte virker også...
 msgid "Failed to map buffer."
-msgstr "Fejlede ved oversættelse af buffer."
+msgstr "Fejlede ved behandling af buffer."
 
 msgid "Filter caps"
 msgstr "Filterkapabilitet"
@@ -1096,6 +1114,13 @@ msgstr ""
 
 msgid "List the plugin contents"
 msgstr "Oplist udvidelsesmodulets indhold"
+
+msgid ""
+"A slashes ('/') separated list of types of elements (also known as klass) to "
+"list. (unordered)"
+msgstr ""
+"En skråstregsadskilt (»/«) liste af elementtyper (også kendt som klass) der "
+"skal vises. (usorteret)"
 
 msgid "Check if the specified element or plugin exists"
 msgstr "Kontroller om det angivne element eller plugin eksisterer"
@@ -1322,3 +1347,9 @@ msgstr "Rørledning sættes til NUL ...\n"
 
 msgid "Freeing pipeline ...\n"
 msgstr "Rørledning frigøres ...\n"
+
+#~ msgid "bin"
+#~ msgstr "lager"
+
+#~ msgid "Internal data stream error."
+#~ msgstr "Intern datastrømsfejl."

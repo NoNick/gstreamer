@@ -55,6 +55,7 @@ struct _GstIdentity {
 
   /*< private >*/
   GstClockID     clock_id;
+  gboolean       flushing;
   gint 	 	 error_after;
   gfloat 	 drop_probability;
   gint		 datarate;
@@ -76,6 +77,8 @@ struct _GstIdentity {
   GstClockTime   upstream_latency;
   GCond          blocked_cond;
   gboolean       blocked;
+  GstClockTimeDiff  ts_offset;
+  gboolean       drop_allocation;
 };
 
 struct _GstIdentityClass {

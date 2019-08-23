@@ -22,6 +22,7 @@
 
 /**
  * SECTION:gstsystemclock
+ * @title: GstSystemClock
  * @short_description: Default clock that uses the current system time
  * @see_also: #GstClock
  *
@@ -88,6 +89,7 @@ struct _GstSystemClockPrivate
 #ifdef G_OS_WIN32
   LARGE_INTEGER start;
   LARGE_INTEGER frequency;
+  guint64 ratio;
 #endif                          /* G_OS_WIN32 */
 #ifdef __APPLE__
   struct mach_timebase_info mach_timebase;
@@ -200,6 +202,7 @@ gst_system_clock_init (GstSystemClock * clock)
   if (priv->frequency.QuadPart != 0)
     /* we take a base time so that time starts from 0 to ease debugging */
     QueryPerformanceCounter (&priv->start);
+  priv->ratio = GST_SECOND / priv->frequency.QuadPart;
 #endif /* G_OS_WIN32 */
 
 #ifdef __APPLE__
@@ -292,7 +295,7 @@ gst_system_clock_get_property (GObject * object, guint prop_id, GValue * value,
 
 /**
  * gst_system_clock_set_default:
- * @new_clock: a #GstClock
+ * @new_clock: (allow-none): a #GstClock
  *
  * Sets the default system clock that can be obtained with
  * gst_system_clock_obtain().
@@ -354,8 +357,8 @@ gst_system_clock_obtain (void)
     clock = g_object_new (GST_TYPE_SYSTEM_CLOCK,
         "name", "GstSystemClock", NULL);
 
-    g_assert (!g_object_is_floating (G_OBJECT (clock)));
-
+    /* Clear floating flag */
+    gst_object_ref_sink (clock);
     _the_system_clock = clock;
     g_mutex_unlock (&_gst_sysclock_mutex);
   } else {
@@ -374,14 +377,18 @@ gst_system_clock_remove_wakeup (GstSystemClock * sysclock)
   g_return_if_fail (sysclock->priv->wakeup_count > 0);
 
   sysclock->priv->wakeup_count--;
-  if (sysclock->priv->wakeup_count == 0) {
-    /* read the control socket byte when we removed the last wakeup count */
-    GST_CAT_DEBUG (GST_CAT_CLOCK, "reading control");
-    while (!gst_poll_read_control (sysclock->priv->timer)) {
-      g_warning ("gstsystemclock: read control failed, trying again\n");
+  GST_CAT_DEBUG (GST_CAT_CLOCK, "reading control");
+  while (!gst_poll_read_control (sysclock->priv->timer)) {
+    if (errno == EWOULDBLOCK) {
+      /* Try again and give other threads the chance to do something */
+      g_thread_yield ();
+      continue;
+    } else {
+      /* Critical error, GstPoll will have printed a critical warning already */
+      break;
     }
-    GST_SYSTEM_CLOCK_BROADCAST (sysclock);
   }
+  GST_SYSTEM_CLOCK_BROADCAST (sysclock);
   GST_CAT_DEBUG (GST_CAT_CLOCK, "wakeup count %d",
       sysclock->priv->wakeup_count);
 }
@@ -389,22 +396,8 @@ gst_system_clock_remove_wakeup (GstSystemClock * sysclock)
 static void
 gst_system_clock_add_wakeup (GstSystemClock * sysclock)
 {
-  /* only write the control socket for the first wakeup */
-  if (sysclock->priv->wakeup_count == 0) {
-    GST_CAT_DEBUG (GST_CAT_CLOCK, "writing control");
-    while (!gst_poll_write_control (sysclock->priv->timer)) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-        g_warning
-            ("gstsystemclock: write control failed in wakeup_async, trying again: %d:%s\n",
-            errno, g_strerror (errno));
-      } else {
-        g_critical
-            ("gstsystemclock: write control failed in wakeup_async: %d:%s\n",
-            errno, g_strerror (errno));
-        return;
-      }
-    }
-  }
+  GST_CAT_DEBUG (GST_CAT_CLOCK, "writing control");
+  gst_poll_write_control (sysclock->priv->timer);
   sysclock->priv->wakeup_count++;
   GST_CAT_DEBUG (GST_CAT_CLOCK, "wakeup count %d",
       sysclock->priv->wakeup_count);
@@ -595,8 +588,8 @@ gst_system_clock_get_internal_time (GstClock * clock)
     /* we prefer the highly accurate performance counters on windows */
     QueryPerformanceCounter (&now);
 
-    return gst_util_uint64_scale (now.QuadPart - sysclock->priv->start.QuadPart,
-        GST_SECOND, sysclock->priv->frequency.QuadPart);
+    return ((now.QuadPart -
+            sysclock->priv->start.QuadPart) * sysclock->priv->ratio);
   } else
 #endif /* G_OS_WIN32 */
 #if !defined HAVE_POSIX_TIMERS || !defined HAVE_CLOCK_GETTIME

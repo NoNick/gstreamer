@@ -22,55 +22,47 @@
  */
 /**
  * SECTION:gstcollectpads
+ * @title: GstCollectPads
  * @short_description: manages a set of pads that operate in collect mode
  * @see_also:
  *
  * Manages a set of pads that operate in collect mode. This means that control
  * is given to the manager of this object when all pads have data.
- * <itemizedlist>
- *   <listitem><para>
- *     Collectpads are created with gst_collect_pads_new(). A callback should then
+ *
+ *   * Collectpads are created with gst_collect_pads_new(). A callback should then
  *     be installed with gst_collect_pads_set_function ().
- *   </para></listitem>
- *   <listitem><para>
- *     Pads are added to the collection with gst_collect_pads_add_pad()/
- *     gst_collect_pads_remove_pad(). The pad
- *     has to be a sinkpad. The chain and event functions of the pad are
- *     overridden. The element_private of the pad is used to store
- *     private information for the collectpads.
- *   </para></listitem>
- *   <listitem><para>
- *     For each pad, data is queued in the _chain function or by
+ *
+ *   * Pads are added to the collection with gst_collect_pads_add_pad()/
+ *     gst_collect_pads_remove_pad(). The pad has to be a sinkpad. When added,
+ *     the chain, event and query functions of the pad are overridden. The
+ *     element_private of the pad is used to store private information for the
+ *     collectpads.
+ *
+ *   * For each pad, data is queued in the _chain function or by
  *     performing a pull_range.
- *   </para></listitem>
- *   <listitem><para>
- *     When data is queued on all pads in waiting mode, the callback function is called.
- *   </para></listitem>
- *   <listitem><para>
- *     Data can be dequeued from the pad with the gst_collect_pads_pop() method.
+ *
+ *   * When data is queued on all pads in waiting mode, the callback function is called.
+ *
+ *   * Data can be dequeued from the pad with the gst_collect_pads_pop() method.
  *     One can peek at the data with the gst_collect_pads_peek() function.
  *     These functions will return %NULL if the pad received an EOS event. When all
  *     pads return %NULL from a gst_collect_pads_peek(), the element can emit an EOS
  *     event itself.
- *   </para></listitem>
- *   <listitem><para>
- *     Data can also be dequeued in byte units using the gst_collect_pads_available(),
+ *
+ *   * Data can also be dequeued in byte units using the gst_collect_pads_available(),
  *     gst_collect_pads_read_buffer() and gst_collect_pads_flush() calls.
- *   </para></listitem>
- *   <listitem><para>
- *     Elements should call gst_collect_pads_start() and gst_collect_pads_stop() in
+ *
+ *   * Elements should call gst_collect_pads_start() and gst_collect_pads_stop() in
  *     their state change functions to start and stop the processing of the collectpads.
  *     The gst_collect_pads_stop() call should be called before calling the parent
  *     element state change function in the PAUSED_TO_READY state change to ensure
  *     no pad is blocked and the element can finish streaming.
- *   </para></listitem>
- *   <listitem><para>
- *     gst_collect_pads_set_waiting() sets a pad to waiting or non-waiting mode.
+ *
+ *   * gst_collect_pads_set_waiting() sets a pad to waiting or non-waiting mode.
  *     CollectPads element is not waiting for data to be collected on non-waiting pads.
  *     Thus these pads may but need not have data when the callback is called.
  *     All pads are in waiting mode by default.
- *   </para></listitem>
- * </itemizedlist>
+ *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -102,7 +94,7 @@ struct _GstCollectPadsPrivate
   gboolean started;
 
   /* with STREAM_LOCK */
-  guint32 cookie;               /* @data list cookie */
+  guint32 cookie;               /* pad_list cookie */
   guint numpads;                /* number of pads in @data */
   guint queuedpads;             /* number of pads with a buffer */
   guint eospads;                /* number of pads that are EOS */
@@ -110,7 +102,7 @@ struct _GstCollectPadsPrivate
   GstCollectData *earliest_data;        /* Pad data for current earliest time */
 
   /* with LOCK */
-  GSList *pad_list;             /* updated pad list */
+  GSList *pad_list;             /* list of GstCollectData* */
   guint32 pad_cookie;           /* updated cookie */
 
   GstCollectPadsFunction func;  /* function and user_data for callback */
@@ -263,9 +255,6 @@ gst_collect_pads_init (GstCollectPads * pads)
   pads->priv->seeking = FALSE;
   pads->priv->pending_flush_start = FALSE;
   pads->priv->pending_flush_stop = FALSE;
-
-  /* clear floating flag */
-  gst_object_ref_sink (pads);
 }
 
 static void
@@ -304,6 +293,9 @@ gst_collect_pads_new (void)
   GstCollectPads *newcoll;
 
   newcoll = g_object_new (GST_TYPE_COLLECT_PADS, NULL);
+
+  /* clear floating flag */
+  gst_object_ref_sink (newcoll);
 
   return newcoll;
 }
@@ -490,7 +482,7 @@ gst_collect_pads_set_query_function (GstCollectPads * pads,
 * @pads: the collectpads to use
 * @cdata: collect data of corresponding pad
 * @buf: buffer being clipped
-* @outbuf: (allow-none): output buffer with running time, or NULL if clipped
+* @outbuf: (allow-none) (out): output buffer with running time, or NULL if clipped
 * @user_data: user data (unused)
 *
 * Convenience clipping function that converts incoming buffer's timestamp
@@ -792,6 +784,8 @@ gst_collect_pads_set_flushing_unlocked (GstCollectPads * pads,
 {
   GSList *walk = NULL;
 
+  GST_DEBUG ("sink-pads flushing=%d", flushing);
+
   /* Update the pads flushing flag */
   for (walk = pads->priv->pad_list; walk; walk = g_slist_next (walk)) {
     GstCollectData *cdata = walk->data;
@@ -952,8 +946,8 @@ gst_collect_pads_stop (GstCollectPads * pads)
  *
  * MT safe.
  *
- * Returns: The buffer in @data or %NULL if no buffer is queued.
- *  should unref the buffer after usage.
+ * Returns: (transfer full) (nullable): The buffer in @data or %NULL if no
+ * buffer is queued. should unref the buffer after usage.
  */
 GstBuffer *
 gst_collect_pads_peek (GstCollectPads * pads, GstCollectData * data)
@@ -984,8 +978,8 @@ gst_collect_pads_peek (GstCollectPads * pads, GstCollectData * data)
  *
  * MT safe.
  *
- * Returns: (transfer full): The buffer in @data or %NULL if no buffer was
- *   queued. You should unref the buffer after usage.
+ * Returns: (transfer full) (nullable): The buffer in @data or %NULL if no
+ * buffer was queued. You should unref the buffer after usage.
  */
 GstBuffer *
 gst_collect_pads_pop (GstCollectPads * pads, GstCollectData * data)
@@ -1151,9 +1145,9 @@ gst_collect_pads_flush (GstCollectPads * pads, GstCollectData * data,
  *
  * MT safe.
  *
- * Returns: (transfer full): A sub buffer. The size of the buffer can be less that requested.
- * A return of %NULL signals that the pad is end-of-stream.
- * Unref the buffer after use.
+ * Returns: (transfer full) (nullable): A sub buffer. The size of the buffer can
+ * be less that requested. A return of %NULL signals that the pad is
+ * end-of-stream. Unref the buffer after use.
  */
 GstBuffer *
 gst_collect_pads_read_buffer (GstCollectPads * pads, GstCollectData * data,
@@ -1191,9 +1185,9 @@ gst_collect_pads_read_buffer (GstCollectPads * pads, GstCollectData * data,
  *
  * MT safe.
  *
- * Returns: A sub buffer. The size of the buffer can be less that requested.
- * A return of %NULL signals that the pad is end-of-stream.
- * Unref the buffer after use.
+ * Returns: (transfer full) (nullable): A sub buffer. The size of the buffer can
+ * be less that requested. A return of %NULL signals that the pad is
+ * end-of-stream. Unref the buffer after use.
  */
 GstBuffer *
 gst_collect_pads_take_buffer (GstCollectPads * pads, GstCollectData * data,
@@ -1685,6 +1679,8 @@ gst_collect_pads_event_default (GstCollectPads * pads, GstCollectData * data,
   pad = data->pad;
   parent = GST_OBJECT_PARENT (pad);
 
+  GST_DEBUG_OBJECT (pad, "Got '%s' event", GST_EVENT_TYPE_NAME (event));
+
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_FLUSH_START:
     {
@@ -1715,7 +1711,9 @@ gst_collect_pads_event_default (GstCollectPads * pads, GstCollectData * data,
       } else {
         /* forward event to unblock check_collected */
         GST_DEBUG_OBJECT (pad, "forwarding flush start");
-        res = gst_pad_event_default (pad, parent, event);
+        if (!(res = gst_pad_event_default (pad, parent, event))) {
+          GST_WARNING_OBJECT (pad, "forwarding flush start failed");
+        }
         event = NULL;
 
         /* now unblock the chain function.
@@ -1865,6 +1863,7 @@ gst_collect_pads_event_default (GstCollectPads * pads, GstCollectData * data,
   }
 
 eat:
+  GST_DEBUG_OBJECT (pads, "dropping event: %" GST_PTR_FORMAT, event);
   if (event)
     gst_event_unref (event);
   return res;
@@ -1872,8 +1871,10 @@ eat:
 forward:
   if (discard)
     goto eat;
-  else
+  else {
+    GST_DEBUG_OBJECT (pads, "forward event: %" GST_PTR_FORMAT, event);
     return gst_pad_event_default (pad, parent, event);
+  }
 }
 
 typedef struct
@@ -2137,7 +2138,7 @@ pad_removed:
  * and if so we call the collected function. When this is done we check if
  * data has been unqueued. If data is still queued we wait holding the stream
  * lock to make sure no EOS event can happen while we are ready to be
- * collected 
+ * collected
  */
 static GstFlowReturn
 gst_collect_pads_chain (GstPad * pad, GstObject * parent, GstBuffer * buffer)

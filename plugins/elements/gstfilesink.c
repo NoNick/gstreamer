@@ -22,16 +22,16 @@
  */
 /**
  * SECTION:element-filesink
+ * @title: filesink
  * @see_also: #GstFileSrc
  *
  * Write incoming data to a file in the local file system.
  *
- * <refsect2>
- * <title>Example launch line</title>
+ * ## Example launch line
  * |[
  * gst-launch-1.0 v4l2src num-buffers=1 ! jpegenc ! filesink location=capture1.jpeg
  * ]| Capture one frame from a v4l2 camera and save as jpeg image.
- * </refsect2>
+ *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -68,13 +68,6 @@
 #include <sys/stat.h>
 #ifdef HAVE_UNISTD_H
 #include <unistd.h>
-#endif
-
-#ifdef __BIONIC__               /* Android */
-#undef lseek
-#define lseek lseek64
-#undef off_t
-#define off_t guint64
 #endif
 
 #include "gstelements_private.h"
@@ -401,12 +394,12 @@ gst_file_sink_open_file (GstFileSink * sink)
       sink->buffer = g_malloc (sink->buffer_size);
       buffer_size = sink->buffer_size;
     }
-    /* Cygwin does not have __fbufsize */
-#if defined(HAVE_STDIO_EXT_H) && !defined(__CYGWIN__)
+    /* Cygwin does not have __fbufsize, android adds it in API 23 */
+#if defined(HAVE_STDIO_EXT_H) && (!defined(__CYGWIN__) && (!defined(__ANDROID_API__) || __ANDROID_API__ >= 23))
     GST_DEBUG_OBJECT (sink, "change buffer size %u to %u, mode %d",
         (guint) __fbufsize (sink->file), buffer_size, mode);
 #else
-    GST_DEBUG_OBJECT (sink, "change  buffer size to %u, mode %d",
+    GST_DEBUG_OBJECT (sink, "change buffer size to %u, mode %d",
         sink->buffer_size, mode);
 #endif
     if (setvbuf (sink->file, sink->buffer, mode, buffer_size) != 0) {
@@ -662,7 +655,7 @@ gst_file_sink_render_buffers (GstFileSink * sink, GstBuffer ** buffers,
       num_buffers, total_mems, sink->current_pos);
 
   return gst_writev_buffers (GST_OBJECT_CAST (sink), fileno (sink->file), NULL,
-      buffers, num_buffers, mem_nums, total_mems, NULL, &sink->current_pos);
+      buffers, num_buffers, mem_nums, total_mems, &sink->current_pos, 0);
 }
 
 static GstFlowReturn

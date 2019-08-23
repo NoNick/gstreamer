@@ -21,16 +21,16 @@
  */
 /**
  * SECTION:element-filesrc
+ * @title: filesrc
  * @see_also: #GstFileSrc
  *
  * Read data from a file in the local file system.
  *
- * <refsect2>
- * <title>Example launch line</title>
+ * ## Example launch line
  * |[
  * gst-launch-1.0 filesrc location=song.ogg ! decodebin ! audioconvert ! audioresample ! autoaudiosink
  * ]| Play song.ogg audio file which must be in the current working directory.
- * </refsect2>
+ *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -66,12 +66,10 @@
 #endif
 
 #ifdef __BIONIC__               /* Android */
-#undef lseek
-#define lseek lseek64
+#if defined(__ANDROID_API__) && __ANDROID_API__ >= 21
 #undef fstat
 #define fstat fstat64
-#undef off_t
-#define off_t guint64
+#endif
 #endif
 
 #include <errno.h>
@@ -236,7 +234,8 @@ gst_file_src_finalize (GObject * object)
 }
 
 static gboolean
-gst_file_src_set_location (GstFileSrc * src, const gchar * location)
+gst_file_src_set_location (GstFileSrc * src, const gchar * location,
+    GError ** err)
 {
   GstState state;
 
@@ -272,6 +271,10 @@ wrong_state:
   {
     g_warning ("Changing the `location' property on filesrc when a file is "
         "open is not supported.");
+    if (err)
+      g_set_error (err, GST_URI_ERROR, GST_URI_ERROR_BAD_STATE,
+          "Changing the `location' property on filesrc when a file is "
+          "open is not supported.");
     GST_OBJECT_UNLOCK (src);
     return FALSE;
   }
@@ -289,7 +292,7 @@ gst_file_src_set_property (GObject * object, guint prop_id,
 
   switch (prop_id) {
     case PROP_LOCATION:
-      gst_file_src_set_location (src, g_value_get_string (value));
+      gst_file_src_set_location (src, g_value_get_string (value), NULL);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -621,7 +624,7 @@ gst_file_src_uri_set_uri (GstURIHandler * handler, const gchar * uri,
     /* Special case for "file://" as this is used by some applications
      *  to test with gst_element_make_from_uri if there's an element
      *  that supports the URI protocol. */
-    gst_file_src_set_location (src, NULL);
+    gst_file_src_set_location (src, NULL, NULL);
     return TRUE;
   }
 
@@ -643,14 +646,14 @@ gst_file_src_uri_set_uri (GstURIHandler * handler, const gchar * uri,
 #ifdef G_OS_WIN32
   /* Unfortunately, g_filename_from_uri() doesn't handle some UNC paths
    * correctly on windows, it leaves them with an extra backslash
-   * at the start if they're of the mozilla-style file://///host/path/file 
+   * at the start if they're of the mozilla-style file://///host/path/file
    * form. Correct this.
    */
   if (location[0] == '\\' && location[1] == '\\' && location[2] == '\\')
     memmove (location, location + 1, strlen (location + 1) + 1);
 #endif
 
-  ret = gst_file_src_set_location (src, location);
+  ret = gst_file_src_set_location (src, location, err);
 
 beach:
   if (location)

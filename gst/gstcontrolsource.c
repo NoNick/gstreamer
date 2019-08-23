@@ -22,11 +22,12 @@
 
 /**
  * SECTION:gstcontrolsource
+ * @title: GstControlSource
  * @short_description: base class for control source sources
  *
  * The #GstControlSource is a base class for control value sources that could
  * be used to get timestamp-value pairs. A control source essentially is a
- * function over time, returning float values between 0.0 and 1.0.
+ * function over time.
  *
  * A #GstControlSource is used by first getting an instance of a specific
  * control-source, creating a binding for the control-source to the target property
@@ -56,15 +57,9 @@ GST_DEBUG_CATEGORY_STATIC (GST_CAT_DEFAULT);
 G_DEFINE_ABSTRACT_TYPE_WITH_CODE (GstControlSource, gst_control_source,
     GST_TYPE_OBJECT, _do_init);
 
-static GObject *gst_control_source_constructor (GType type,
-    guint n_construct_params, GObjectConstructParam * construct_params);
-
 static void
 gst_control_source_class_init (GstControlSourceClass * klass)
 {
-  GObjectClass *gobject_class = G_OBJECT_CLASS (klass);
-
-  gobject_class->constructor = gst_control_source_constructor;
 }
 
 static void
@@ -72,20 +67,6 @@ gst_control_source_init (GstControlSource * self)
 {
   self->get_value = NULL;
   self->get_value_array = NULL;
-}
-
-static GObject *
-gst_control_source_constructor (GType type, guint n_construct_params,
-    GObjectConstructParam * construct_params)
-{
-  GObject *self;
-
-  self =
-      G_OBJECT_CLASS (gst_control_source_parent_class)->constructor (type,
-      n_construct_params, construct_params);
-  gst_object_ref_sink (self);
-
-  return self;
 }
 
 /**

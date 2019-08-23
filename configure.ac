@@ -4,7 +4,7 @@ dnl initialize autoconf
 dnl when going to/from release please set the nano (fourth number) right !
 dnl releases only do Wall, git and prerelease does Werror too
 dnl
-AC_INIT([GStreamer],[1.8.1.1],[http://bugzilla.gnome.org/enter_bug.cgi?product=GStreamer],[gstreamer])
+AC_INIT([GStreamer],[1.14.5],[http://bugzilla.gnome.org/enter_bug.cgi?product=GStreamer],[gstreamer])
 AG_GST_INIT
 
 dnl initialize automake (we require GNU make)
@@ -62,7 +62,7 @@ dnl      1.2.5 => 205
 dnl      1.10.9 (who knows) => 1009
 dnl
 dnl sets GST_LT_LDFLAGS
-AS_LIBTOOL(GST, 801, 0, 801)
+AS_LIBTOOL(GST, 1405, 0, 1405)
 
 dnl *** autotools stuff ****
 
@@ -88,6 +88,10 @@ AG_GST_CHECK_SUBSYSTEM_DISABLE(GST_DEBUG,[debugging subsystem])
 AM_CONDITIONAL(GST_DISABLE_GST_DEBUG, test "x$GST_DISABLE_GST_DEBUG" = "xyes")
 AG_GST_CHECK_SUBSYSTEM_DISABLE(GST_TRACER_HOOKS,[tracing subsystem hooks])
 AM_CONDITIONAL(GST_DISABLE_GST_TRACER_HOOKS, test "x$GST_DISABLE_GST_TRACER_HOOKS" = "xyes")
+if test "x$GST_DISABLE_GST_TRACER_HOOKS" = xyes; then
+  AC_DEFINE(GST_DISABLE_GST_TRACER_HOOKS, 1,
+    [Define if tracing subsystem hooks is disabled])
+fi
 AG_GST_CHECK_SUBSYSTEM_DISABLE(PARSE,[command-line parser])
 AM_CONDITIONAL(GST_DISABLE_PARSE, test "x$GST_DISABLE_PARSE" = "xyes")
 if test "x$GST_DISABLE_PARSE" = xyes; then
@@ -100,10 +104,6 @@ if test "x$GST_DISABLE_OPTION_PARSING" = xyes; then
   AC_DEFINE(GST_DISABLE_OPTION_PARSING, 1,
     [Define if option parsing is disabled])
 fi
-AG_GST_CHECK_SUBSYSTEM_DISABLE(TRACE,[historic tracing subsystem])
-AM_CONDITIONAL(GST_DISABLE_TRACE, test "x$GST_DISABLE_TRACE" = "xyes")
-AG_GST_CHECK_SUBSYSTEM_DISABLE(ALLOC_TRACE,[allocation tracing])
-AM_CONDITIONAL(GST_DISABLE_ALLOC_TRACE, test "x$GST_DISABLE_ALLOC_TRACE" = "xyes")
 AG_GST_CHECK_SUBSYSTEM_DISABLE(REGISTRY,[plugin registry])
 AM_CONDITIONAL(GST_DISABLE_REGISTRY, test "x$GST_DISABLE_REGISTRY" = "xyes")
 dnl define a substitution to use in docs/gst/gstreamer.types
@@ -134,6 +134,11 @@ AG_GST_SET_PACKAGE_RELEASE_DATETIME_WITH_NANO([$PACKAGE_VERSION_NANO],
   ["${srcdir}/gstreamer.doap"],
   [$PACKAGE_VERSION_MAJOR.$PACKAGE_VERSION_MINOR.$PACKAGE_VERSION_MICRO])
 
+# We only use this when building with MSVC, which is only done with the
+# alternate Meson build system files
+GSTCONFIG_BUILT_WITH_MSVC=0
+AC_SUBST(GSTCONFIG_BUILT_WITH_MSVC)
+
 dnl check for bash completion
 AC_ARG_WITH([bash-completion-dir],
     AS_HELP_STRING([--with-bash-completion-dir[=PATH]],
@@ -151,11 +156,14 @@ then
     fi
 
     PKG_CHECK_MODULES([BASH_COMPLETION], [bash-completion >= 2.0],
-        [BASH_COMPLETION_DIR="`eval pkg-config $extra_args --variable=completionsdir bash-completion`"],
-        [BASH_COMPLETION_DIR="$datadir/bash-completion/completions"])
-    PKG_CHECK_MODULES([BASH_COMPLETION], [bash-completion >= 2.0],
-        [BASH_HELPERS_DIR="`eval pkg-config $extra_args --variable=helpersdir bash-completion`"],
-        [BASH_HELPERS_DIR="$datadir/bash-completion/helpers"])
+        [
+          BASH_COMPLETION_DIR="`eval pkg-config $extra_args --variable=completionsdir bash-completion`"
+          BASH_HELPERS_DIR="`eval pkg-config $extra_args --variable=helpersdir bash-completion`"
+        ],
+        [
+          BASH_COMPLETION_DIR="$datadir/bash-completion/completions"
+          BASH_HELPERS_DIR="$datadir/bash-completion/helpers"
+        ])
 else
     BASH_COMPLETION_DIR="$with_bash_completion_dir/completions"
     BASH_HELPERS_DIR="$with_bash_completion_dir/helpers"
@@ -165,27 +173,11 @@ AC_SUBST([BASH_COMPLETION_DIR])
 AC_SUBST([BASH_HELPERS_DIR])
 AM_CONDITIONAL([ENABLE_BASH_COMPLETION],[test "x$with_bash_completion_dir" != "xno"])
 
-dnl build static plugins or not
-AC_MSG_CHECKING([whether to build static plugins or not])
-AC_ARG_ENABLE(
-  static-plugins,
-  AC_HELP_STRING(
-    [--enable-static-plugins],
-    [build static plugins @<:@default=no@:>@]),
-  [AS_CASE(
-    [$enableval], [no], [], [yes], [],
-    [AC_MSG_ERROR([bad value "$enableval" for --enable-static-plugins])])],
-  [enable_static_plugins=no])
-AC_MSG_RESULT([$enable_static_plugins])
-if test "x$enable_static_plugins" = xyes; then
-  AC_DEFINE(GST_PLUGIN_BUILD_STATIC, 1,
-    [Define if static plugins should be built])
-  GST_PLUGIN_LIBTOOLFLAGS=""
-else
-  GST_PLUGIN_LIBTOOLFLAGS="--tag=disable-static"
+dnl If only building static libraries, define GST_STATIC_COMPILATION. This is
+dnl needed only on Windows, but it doesn't hurt to have it everywhere.
+if test x$enable_static = xyes -a x$enable_shared = xno; then
+  GST_OBJ_STATIC_CFLAGS="-DGST_STATIC_COMPILATION"
 fi
-AC_SUBST(GST_PLUGIN_LIBTOOLFLAGS)
-AM_CONDITIONAL(GST_PLUGIN_BUILD_STATIC, test "x$enable_static_plugins" = "xyes")
 
 dnl building of tests
 AC_ARG_ENABLE(tests,
@@ -404,20 +396,6 @@ dnl * hardware/architecture *
 dnl common/m4/gst-arch.m4
 dnl check CPU type
 AG_GST_ARCH
-dnl substitution for win32/common/config.h
-HOST_CPU=$host_cpu
-AC_SUBST(HOST_CPU)
-
-dnl common/m4/gst-arch.m4
-dnl check for unaligned access
-AG_GST_UNALIGNED_ACCESS
-dnl create a configure variable for gst/gstconfig.h
-if test x${as_cv_unaligned_access} = xyes ; then
-  GST_HAVE_UNALIGNED_ACCESS_DEFINE="#define GST_HAVE_UNALIGNED_ACCESS 1"
-else
-  GST_HAVE_UNALIGNED_ACCESS_DEFINE="#define GST_HAVE_UNALIGNED_ACCESS 0"
-fi
-AC_SUBST(GST_HAVE_UNALIGNED_ACCESS_DEFINE)
 
 dnl check for platform specific settings
 AG_GST_PLATFORM
@@ -469,7 +447,6 @@ dnl check for gobject-introspection
 GOBJECT_INTROSPECTION_CHECK([1.31.1])
 
 dnl check for documentation tools
-AG_GST_DOCBOOK_CHECK
 GTK_DOC_CHECK([1.12])
 AG_GST_PLUGIN_DOCS([1.12])
 
@@ -665,26 +642,60 @@ AC_RUN_IFELSE([AC_LANG_SOURCE([[
   [broken_poll="no (cross compiling)"])
 AC_MSG_RESULT($broken_poll)
 
-dnl check for mmap()
-AC_FUNC_MMAP
-AM_CONDITIONAL(HAVE_MMAP, test "x$ac_cv_func_mmap_fixed_mapped" = "xyes")
-
-dnl check for posix_memalign(), getpagesize()
-AC_CHECK_FUNCS([posix_memalign])
+dnl check for getpagesize()
 AC_CHECK_FUNCS([getpagesize])
 
 dnl Check for POSIX timers
-AC_CHECK_FUNCS(clock_gettime, [], [
+CLOCK_GETTIME_FOUND="no"
+AC_CHECK_FUNC(clock_gettime, [CLOCK_GETTIME_FOUND="yes"], [
   AC_CHECK_LIB(rt, clock_gettime, [
-    AC_DEFINE(HAVE_CLOCK_GETTIME, 1)
+    CLOCK_GETTIME_FOUND="yes"
     LIBS="$LIBS -lrt"
   ], [
     AC_CHECK_LIB(pthread, clock_gettime, [
-      AC_DEFINE(HAVE_CLOCK_GETTIME, 1)
+      CLOCK_GETTIME_FOUND="yes"
       LIBS="$LIBS -lpthread"
     ])
   ])
 ])
+
+# With XCode 8, clock_gettime will be incorrectly detected as being available
+# regardless of what version of OS X you target because the symbol is available
+# in the .tbd file as a weak symbol.
+# See: https://bugzilla.gnome.org/show_bug.cgi?id=772451 
+#
+# We cannot simply do AC_CHECK_FUNCS with -Wl,-no_weak_imports because the
+# autoconf check does its own prototype declaration that doesn't trigger that
+# compiler flag.
+#
+# It's only starting from macOS 10.12 and iOS 10.0 that clock_gettime is
+# actually available, so we can unconditionally disable it for older versions.
+case "$host_os" in
+  darwin*)
+    AC_COMPILE_IFELSE([AC_LANG_SOURCE([[
+#include <AvailabilityMacros.h>
+#include <TargetConditionals.h>
+#if defined(TARGET_OS_MAC)
+#  if MAC_OS_X_VERSION_MIN_REQUIRED < MAC_OS_X_VERSION_10_12
+#    error "Not compiling for OS X 10.12 or later"
+#  endif
+#else
+#  if __IPHONE_OS_VERSION_MIN_REQUIRED < __IPHONE_10_0
+#    error "Not compiling for iOS 10.0 or later"
+#  endif
+#endif
+    ]])], [], [
+    if test "$CLOCK_GETTIME_FOUND" = "yes"; then
+      AC_MSG_NOTICE([Disabling incorrectly detected clock_gettime on OS X])
+    fi
+    CLOCK_GETTIME_FOUND="no"
+    ])
+    ;;
+esac
+
+if test "$CLOCK_GETTIME_FOUND" = "yes"; then
+  AC_DEFINE(HAVE_CLOCK_GETTIME, 1, [Have clock_gettime])
+fi
 
 AC_CACHE_CHECK(for posix timers, gst_cv_posix_timers,
     AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[
@@ -790,6 +801,55 @@ if test "x$BUILD_EXAMPLES" = "xyes"; then
 fi
 AM_CONDITIONAL(HAVE_GTK, test "x$HAVE_GTK" = "xyes")
 
+dnl libunwind is optionally used by the leaks tracer
+AC_ARG_WITH([unwind],[AS_HELP_STRING([--with-unwind=yes|no|auto],[use libunwind])],
+            [], [with_unwind=auto])
+if [ test "x${with_unwind}" != "xno" ]; then
+  PKG_CHECK_MODULES(UNWIND, [libunwind],
+      [
+        HAVE_UNWIND=yes
+        AC_DEFINE(HAVE_UNWIND, 1, [libunwind available])
+        UNWIND_REQUIRE=libunwind
+        AC_SUBST(UNWIND_REQUIRE)
+      ],
+      [
+        HAVE_UNWIND=no
+        if [ test "x${with_unwind}" = "xyes" ]; then
+          AC_MSG_ERROR([could not find libunwind])
+        fi
+      ])
+else
+  HAVE_UNWIND=no
+fi
+
+dnl libdw is optionally used to add source lines and numbers to backtraces
+AC_ARG_WITH([dw],[AS_HELP_STRING([--with-dw=yes|no|auto],[use libdw])],
+            [], [with_dw=auto])
+if [ test "x${with_dw}" != "xno" ]; then
+  PKG_CHECK_MODULES(DW, [libdw],
+      [
+        HAVE_DW=yes
+        AC_DEFINE(HAVE_DW, 1, [libdw available])
+        DW_REQUIRE=libdw
+        AC_SUBST(DW_REQUIRE)
+      ],
+      [
+        HAVE_DW=no
+        if [ test "x${with_dw}" = "xyes" ]; then
+          AC_MSG_ERROR([could not find libdw])
+        fi
+      ])
+else
+  HAVE_DW=no
+fi
+
+dnl Check for backtrace() from libc
+AC_CHECK_FUNC(backtrace, [
+  AC_CHECK_HEADERS([execinfo.h], [
+    AC_DEFINE(HAVE_BACKTRACE,1,[Have backtrace])
+  ], [], [])
+])
+
 dnl building of unit test libraries
 AC_ARG_ENABLE(check,
   AS_HELP_STRING([--disable-check],[disable building unit test libraries]),
@@ -874,6 +934,10 @@ dnl special warning flags for gst/printf
 AS_COMPILER_FLAG([-Wno-format-nonliteral], [PRINTF_CFLAGS="-Wno-format-nonliteral"])
 AC_SUBST(PRINTF_CFLAGS)
 
+dnl disable strict aliasing
+AS_COMPILER_FLAG([-fno-strict-aliasing], [EXTRA_CFLAGS="-fno-strict-aliasing"])
+AC_SUBST(EXTRA_CFLAGS)
+
 dnl define correct level for debugging messages
 AG_GST_SET_LEVEL_DEFAULT($GST_GIT)
 
@@ -921,8 +985,8 @@ dnl - src and build dirs need to be added because every piece that gets built
 dnl   will need the GStreamer source and generated headers
 dnl LIBS: XML doesn't need to be added because we don't explicitly use symbols
 dnl       from LibXML except for in the core library
-GST_ALL_CXXFLAGS="-I\$(top_srcdir)/libs -I\$(top_srcdir) -I\$(top_builddir)/libs -I\$(top_builddir) $GLIB_CFLAGS \$(GLIB_EXTRA_CFLAGS) $XML_CFLAGS \$(GST_OPTION_CXXFLAGS) \$(ERROR_CXXFLAGS)"
-GST_ALL_CFLAGS="-I\$(top_srcdir)/libs -I\$(top_srcdir) -I\$(top_builddir)/libs -I\$(top_builddir) $GLIB_CFLAGS \$(GLIB_EXTRA_CFLAGS) $XML_CFLAGS \$(GST_OPTION_CFLAGS) \$(ERROR_CFLAGS)"
+GST_ALL_CXXFLAGS="-I\$(top_srcdir)/libs -I\$(top_srcdir) -I\$(top_builddir)/libs -I\$(top_builddir) $GLIB_CFLAGS \$(GLIB_EXTRA_CFLAGS) $EXTRA_CFLAGS \$(GST_OPTION_CXXFLAGS) \$(ERROR_CXXFLAGS)"
+GST_ALL_CFLAGS="-I\$(top_srcdir)/libs -I\$(top_srcdir) -I\$(top_builddir)/libs -I\$(top_builddir) $GLIB_CFLAGS \$(GLIB_EXTRA_CFLAGS) $EXTRA_CFLAGS \$(GST_OPTION_CFLAGS) \$(ERROR_CFLAGS)"
 
 dnl FIXME: check if LTLIBINTL is needed everywhere
 dnl I presume it is given that it contains the symbols that _() stuff maps to
@@ -949,8 +1013,8 @@ AC_SUBST(GST_LIB_LDFLAGS)
 dnl GST_OBJ_*
 dnl default vars for all internal objects built on libgstreamer
 dnl includes GST_ALL_*
-GST_OBJ_CFLAGS="\$(GST_ALL_CFLAGS)"
-GST_OBJ_CXXFLAGS="\$(GST_ALL_CXXFLAGS)"
+GST_OBJ_CFLAGS="\$(GST_ALL_CFLAGS) $GST_OBJ_STATIC_CFLAGS"
+GST_OBJ_CXXFLAGS="\$(GST_ALL_CXXFLAGS) $GST_OBJ_STATIC_CFLAGS"
 GST_OBJ_LIBS="\$(top_builddir)/gst/libgstreamer-$GST_API_VERSION.la \$(GST_ALL_LIBS)"
 AC_SUBST(GST_OBJ_CFLAGS)
 AC_SUBST(GST_OBJ_CXXFLAGS)
@@ -967,6 +1031,29 @@ AC_DEFINE_UNQUOTED(GST_PLUGIN_SCANNER_INSTALLED,
     "$GST_PLUGIN_SCANNER_INSTALLED", [location of the installed gst-plugin-scanner])
 AC_SUBST(GST_PLUGIN_SCANNER_INSTALLED)
 
+case "${libexecdir}" in
+  *libexec)
+    GST_PLUGIN_SCANNER_SUBDIR="libexec";;
+  *lib)
+    GST_PLUGIN_SCANNER_SUBDIR="lib";;
+  *)
+    GST_PLUGIN_SCANNER_SUBDIR=`basename ${libexecdir}`;
+    if test -z "$GST_PLUGIN_SCANNER_SUBDIR"; then
+      AC_MSG_WARN([Couldn't determined libexecdir suffix, using "lib"])
+      GST_PLUGIN_SCANNER_SUBDIR="lib";
+    fi
+    ;;
+esac
+AC_DEFINE_UNQUOTED(GST_PLUGIN_SCANNER_SUBDIR,
+    "$GST_PLUGIN_SCANNER_SUBDIR", [libexecdir path component, used to find plugin-scanner on relocatable builds on windows])
+
+
+dnl completion helper locations
+AS_AC_EXPAND(GST_COMPLETION_HELPER_INSTALLED,${libexecdir}/gstreamer-$GST_API_VERSION/gst-completion-helper)
+AC_DEFINE_UNQUOTED(GST_COMPLETION_HELPER_INSTALLED,
+    "$GST_COMPLETION_HELPER_INSTALLED", [location of the installed gst-completion-helper])
+AC_SUBST(GST_COMPLETION_HELPER_INSTALLED)
+
 dnl ptp helper locations
 AS_AC_EXPAND(GST_PTP_HELPER_INSTALLED,${libexecdir}/gstreamer-$GST_API_VERSION/gst-ptp-helper)
 AC_DEFINE_UNQUOTED(GST_PTP_HELPER_INSTALLED,
@@ -975,11 +1062,12 @@ AC_SUBST(GST_PTP_HELPER_INSTALLED)
 
 dnl things for our internal libcheck (must be called even if building
 dnl libcheck is disabled because it defines conditionals)
-AG_GST_CHECK_CHECKS()
+AG_GST_CHECK_CHECKS
 
 AC_CONFIG_FILES(
 Makefile
 data/Makefile
+data/bash-completion/helpers/gst
 gst/Makefile
 gst/gstconfig.h
 gst/gstversion.h
@@ -1007,7 +1095,6 @@ tests/examples/adapter/Makefile
 tests/examples/controller/Makefile
 tests/examples/stepping/Makefile
 tests/examples/helloworld/Makefile
-tests/examples/manual/Makefile
 tests/examples/memory/Makefile
 tests/examples/netclock/Makefile
 tests/examples/ptp/Makefile
@@ -1017,16 +1104,10 @@ tools/Makefile
 common/Makefile
 common/m4/Makefile
 docs/Makefile
-docs/design/Makefile
-docs/faq/Makefile
 docs/gst/Makefile
 docs/gst/gstreamer.types
 docs/libs/Makefile
 docs/plugins/Makefile
-docs/manual/Makefile
-docs/pwg/Makefile
-docs/slides/Makefile
-docs/xsl/Makefile
 docs/version.entities
 m4/Makefile
 pkgconfig/Makefile
@@ -1041,45 +1122,7 @@ pkgconfig/gstreamer-controller.pc
 pkgconfig/gstreamer-controller-uninstalled.pc
 pkgconfig/gstreamer-net.pc
 pkgconfig/gstreamer-net-uninstalled.pc
-gstreamer.spec
 )
-
-dnl Create the config.h file for Visual Studio builds
-dnl Beware of spaces and /'s in some of the shell variable contents.
-sed \
-    -e 's/.*config.h.in.*autoheader.*/\/* Autogenerated config.h created for win32 Visual Studio builds *\/\n\n\/* PREFIX -- specifically added for Windows for easier moving *\/\n#define PREFIX "C:\\\\gstreamer"/' \
-    -e 's/.* GETTEXT_PACKAGE$/#define GETTEXT_PACKAGE "'$GETTEXT_PACKAGE'"/' \
-    -e 's/.* GST_DATADIR$/#define GST_DATADIR PREFIX "\\\\share"/' \
-    -e 's/.* GST_LEVEL_DEFAULT$/#define GST_LEVEL_DEFAULT GST_LEVEL_ERROR/' \
-    -e 's/.* GST_LICENSE$/#define GST_LICENSE "'$GST_LICENSE'"/' \
-    -e 's/.* GST_API_VERSION$/#define GST_API_VERSION "'$GST_API_VERSION'"/' \
-    -e "s,.* GST_PACKAGE_NAME$,#define GST_PACKAGE_NAME \"${GST_PACKAGE_NAME}\"," \
-    -e 's/.* GST_PACKAGE_ORIGIN$/#define GST_PACKAGE_ORIGIN "Unknown package origin"/' \
-    -e "s,.* GST_PACKAGE_RELEASE_DATETIME$,#define GST_PACKAGE_RELEASE_DATETIME \"${GST_PACKAGE_RELEASE_DATETIME}\"," \
-    -e 's/.* HAVE_CPU_I386$/#define HAVE_CPU_I386 1/' \
-    -e 's/.* HAVE_FGETPOS$/#define HAVE_FGETPOS 1/' \
-    -e 's/.* HAVE_FSETPOS$/#define HAVE_FSETPOS 1/' \
-    -e 's/.* HAVE_PROCESS_H$/#define HAVE_PROCESS_H 1/' \
-    -e 's/.* HAVE_STDLIB_H$/#define HAVE_STDLIB_H 1/' \
-    -e 's/.* HAVE_STRING_H$/#define HAVE_STRING_H 1/' \
-    -e 's/.* HAVE_SYS_STAT_H$/#define HAVE_SYS_STAT_H 1/' \
-    -e 's/.* HAVE_SYS_TYPES_H$/#define HAVE_SYS_TYPES_H 1/' \
-    -e 's/.* HAVE_WIN32$/#define HAVE_WIN32 1/' \
-    -e 's/.* HAVE_WINSOCK2_H$/#define HAVE_WINSOCK2_H 1/' \
-    -e 's/.* HOST_CPU$/#define HOST_CPU "i686"/' \
-    -e 's/.* MEMORY_ALIGNMENT_MALLOC/#define MEMORY_ALIGNMENT_MALLOC 1/' \
-    -e 's/.* LIBDIR$/#ifdef _DEBUG\n#  define LIBDIR PREFIX "\\\\debug\\\\lib"\n#else\n#  define LIBDIR PREFIX "\\\\lib"\n#endif/' \
-    -e 's/.* LOCALEDIR$/#define LOCALEDIR PREFIX "\\\\share\\\\locale"/' \
-    -e 's/.* PACKAGE$/#define PACKAGE "gstreamer"/' \
-    -e 's/.* PACKAGE_BUGREPORT$/#define PACKAGE_BUGREPORT "http:\/\/bugzilla.gnome.org\/enter_bug.cgi?product=GStreamer"/' \
-    -e 's/.* PACKAGE_NAME$/#define PACKAGE_NAME "'$PACKAGE_NAME'"/' \
-    -e "s/.* PACKAGE_STRING$/#define PACKAGE_STRING \"$PACKAGE_STRING\"/" \
-    -e 's/.* PACKAGE_TARNAME$/#define PACKAGE_TARNAME "'$PACKAGE_TARNAME'"/' \
-    -e 's/.* PACKAGE_VERSION$/#define PACKAGE_VERSION "'$PACKAGE_VERSION'"/' \
-    -e 's/.* PLUGINDIR$/#ifdef _DEBUG\n#  define PLUGINDIR PREFIX "\\\\debug\\\\lib\\\\gstreamer-1.0"\n#else\n#  define PLUGINDIR PREFIX "\\\\lib\\\\gstreamer-1.0"\n#endif/' \
-    -e 's/.* GST_PLUGIN_SCANNER_INSTALLED$/#define GST_PLUGIN_SCANNER_INSTALLED LIBDIR "\\\\gst-plugin-scanner"/' \
-    -e 's/.* VERSION$/#define VERSION "'$VERSION'"/' \
-    config.h.in >win32/common/config.h-new
 
 AC_OUTPUT
 
@@ -1088,8 +1131,6 @@ if test "x${GST_DISABLE_GST_DEBUG}" = "xno"; then enable_gst_debug="yes"; fi
 if test "x${GST_DISABLE_GST_TRACER_HOOKS}" = "xno"; then enable_gst_tracer_hooks="yes"; fi
 if test "x${GST_DISABLE_PARSE}" = "xno"; then enable_parse="yes"; fi
 if test "x${GST_DISABLE_OPTION_PARSING}" = "xno"; then enable_option_parsing="yes"; fi
-if test "x${GST_DISABLE_TRACE}" = "xno"; then enable_trace="yes"; fi
-if test "x${GST_DISABLE_ALLOC_TRACE}" = "xno"; then enable_alloc_trace="yes"; fi
 if test "x${GST_DISABLE_PLUGIN}" = "xno"; then enable_plugin="yes"; fi
 if test "x${GST_DISABLE_REGISTRY}" = "xno"; then enable_registry="yes"; fi
 
@@ -1103,20 +1144,19 @@ Configuration
 	Package name               : ${GST_PACKAGE_NAME}
 	Package origin             : ${GST_PACKAGE_ORIGIN}
 
-	Documentation (manuals)    : ${enable_docbook}
-	Documentation (API)        : ${enable_gtk_doc}
+	API Documentation          : ${enable_gtk_doc}
 
 	Debug logging              : ${enable_gst_debug}
 	Tracing subsystem hooks    : ${enable_gst_tracer_hooks}
 	Command-line parser        : ${enable_parse}
 	Option parsing in gst_init : ${enable_option_parsing}
-	Historic tracing subsystem : ${enable_trace}
-	Allocation tracing         : ${enable_alloc_trace}
 	Plugin registry            : ${enable_registry}
 	Plugin support	           : ${enable_plugin}
 	Static plugins             : ${enable_static_plugins}
 	Unit testing support       : ${BUILD_CHECK}
 	PTP clock support          : ${HAVE_PTP}
+	libunwind support          : ${HAVE_UNWIND}
+	libdw support              : ${HAVE_DW}
 
 	Debug                      : ${USE_DEBUG}
 	Profiling                  : ${USE_PROFILING}

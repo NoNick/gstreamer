@@ -22,6 +22,7 @@
 
 /**
  * SECTION:element-fdsink
+ * @title: fdsink
  * @see_also: #GstFdSrc
  *
  * Write data to a unix file descriptor.
@@ -68,13 +69,11 @@
 #define off_t guint64
 #endif
 
-#ifdef __BIONIC__               /* Android */
-#undef lseek
-#define lseek lseek64
+#if defined(__BIONIC__)         /* Android */
+#if defined(__ANDROID_API__) && __ANDROID_API__ >= 21
 #undef fstat
 #define fstat fstat64
-#undef off_t
-#define off_t guint64
+#endif
 #endif
 
 static GstStaticPadTemplate sinktemplate = GST_STATIC_PAD_TEMPLATE ("sink",
@@ -243,9 +242,28 @@ static GstFlowReturn
 gst_fd_sink_render_buffers (GstFdSink * sink, GstBuffer ** buffers,
     guint num_buffers, guint8 * mem_nums, guint total_mems)
 {
-  return gst_writev_buffers (GST_OBJECT_CAST (sink), sink->fd, sink->fdset,
-      buffers, num_buffers, mem_nums, total_mems, &sink->bytes_written,
-      &sink->current_pos);
+  GstFlowReturn ret;
+  guint64 skip = 0;
+
+  for (;;) {
+    guint64 bytes_written = 0;
+
+    ret = gst_writev_buffers (GST_OBJECT_CAST (sink), sink->fd, sink->fdset,
+        buffers, num_buffers, mem_nums, total_mems, &bytes_written, skip);
+
+    sink->bytes_written += bytes_written;
+    sink->current_pos += bytes_written;
+    skip += bytes_written;
+
+    if (!sink->unlock)
+      break;
+
+    ret = gst_base_sink_wait_preroll (GST_BASE_SINK (sink));
+    if (ret != GST_FLOW_OK)
+      return ret;
+  }
+
+  return ret;
 }
 
 static GstFlowReturn
@@ -403,6 +421,7 @@ gst_fd_sink_unlock (GstBaseSink * basesink)
 
   GST_LOG_OBJECT (fdsink, "Flushing");
   GST_OBJECT_LOCK (fdsink);
+  fdsink->unlock = TRUE;
   gst_poll_set_flushing (fdsink->fdset, TRUE);
   GST_OBJECT_UNLOCK (fdsink);
 
@@ -416,6 +435,7 @@ gst_fd_sink_unlock_stop (GstBaseSink * basesink)
 
   GST_LOG_OBJECT (fdsink, "No longer flushing");
   GST_OBJECT_LOCK (fdsink);
+  fdsink->unlock = FALSE;
   gst_poll_set_flushing (fdsink->fdset, FALSE);
   GST_OBJECT_UNLOCK (fdsink);
 

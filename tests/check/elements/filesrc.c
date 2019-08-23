@@ -17,11 +17,9 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
-
-#include <unistd.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
 #include <gst/check/gstcheck.h>
 
@@ -71,6 +69,9 @@ setup_filesrc (void)
 {
   GstElement *filesrc;
 
+  g_cond_init (&eos_cond);
+  g_mutex_init (&event_mutex);
+
   GST_DEBUG ("setup_filesrc");
   filesrc = gst_check_setup_element ("filesrc");
   mysinkpad = gst_check_setup_sink_pad (filesrc, &sinktemplate);
@@ -83,9 +84,13 @@ setup_filesrc (void)
 static void
 cleanup_filesrc (GstElement * filesrc)
 {
+  gst_check_drop_buffers ();
   gst_pad_set_active (mysinkpad, FALSE);
   gst_check_teardown_sink_pad (filesrc);
   gst_check_teardown_element (filesrc);
+
+  g_mutex_clear (&event_mutex);
+  g_cond_clear (&eos_cond);
 }
 
 GST_START_TEST (test_seeking)
@@ -362,15 +367,31 @@ GST_START_TEST (test_uri_interface)
   fail_unless_equals_string (location, "file:///i/do/not/exist");
   g_free (location);
 
+#define DSEP G_DIR_SEPARATOR_S
+
   /* should accept file:///foo/bar URIs */
   fail_unless (gst_uri_handler_set_uri (GST_URI_HANDLER (src),
           "file:///foo/bar", NULL));
   location = gst_uri_handler_get_uri (GST_URI_HANDLER (src));
   fail_unless_equals_string (location, "file:///foo/bar");
   g_free (location);
+  location = NULL;
   g_object_get (G_OBJECT (src), "location", &location, NULL);
-  fail_unless_equals_string (location, "/foo/bar");
+  fail_unless_equals_string (location, DSEP "foo" DSEP "bar");
   g_free (location);
+
+#ifdef G_OS_WIN32
+  /* should accept file:///c:/foo/bar.txt URIs */
+  fail_unless (gst_uri_handler_set_uri (GST_URI_HANDLER (src),
+          "file:///c:/foo/bar", NULL));
+  location = gst_uri_handler_get_uri (GST_URI_HANDLER (src));
+  fail_unless_equals_string (location, "file:///c:/foo/bar");
+  g_free (location);
+  location = NULL;
+  g_object_get (G_OBJECT (src), "location", &location, NULL);
+  fail_unless_equals_string (location, "c:" DSEP "foo" DSEP "bar");
+  g_free (location);
+#endif
 
   /* should accept file://localhost/foo/bar URIs */
   fail_unless (gst_uri_handler_set_uri (GST_URI_HANDLER (src),
@@ -378,9 +399,12 @@ GST_START_TEST (test_uri_interface)
   location = gst_uri_handler_get_uri (GST_URI_HANDLER (src));
   fail_unless_equals_string (location, "file:///foo/baz");
   g_free (location);
+  location = NULL;
   g_object_get (G_OBJECT (src), "location", &location, NULL);
-  fail_unless_equals_string (location, "/foo/baz");
+  fail_unless_equals_string (location, DSEP "foo" DSEP "baz");
   g_free (location);
+
+#undef DSEP
 
   /* should escape non-uri characters for the URI but not for the location */
   g_object_set (G_OBJECT (src), "location", "/foo/b?r", NULL);

@@ -19,6 +19,7 @@
  */
 /**
  * SECTION:gstptpclock
+ * @title: GstPtpClock
  * @short_description: Special clock that synchronizes to a remote time
  *                     provider via PTP (IEEE1588:2008).
  * @see_also: #GstClock, #GstNetClientClock, #GstPipeline
@@ -39,7 +40,6 @@
  * return valid timestamps once the timestamps in the PTP domain are known. To
  * check this, you can use gst_clock_wait_for_sync(), the GstClock::synced
  * signal and gst_clock_is_synced().
- *
  *
  * To gather statistics about the PTP clock synchronization,
  * gst_ptp_statistics_callback_add() can be used. This gives the application
@@ -296,8 +296,10 @@ typedef struct
 static void
 ptp_pending_sync_free (PtpPendingSync * sync)
 {
-  if (sync->timeout_source)
+  if (sync->timeout_source) {
     g_source_destroy (sync->timeout_source);
+    g_source_unref (sync->timeout_source);
+  }
   g_free (sync);
 }
 
@@ -855,6 +857,7 @@ handle_announce_message (PtpMessage * msg, GstClockTime receive_time)
     clock_name = g_strdup_printf ("ptp-clock-%u", domain->domain);
     domain->domain_clock =
         g_object_new (GST_TYPE_SYSTEM_CLOCK, "name", clock_name, NULL);
+    gst_object_ref_sink (domain->domain_clock);
     g_free (clock_name);
     g_queue_init (&domain->pending_syncs);
     domain->last_path_delays_missing = 9;
@@ -1089,14 +1092,18 @@ update_ptp_time (PtpDomainData * domain, PtpPendingSync * sync)
 
 #ifdef USE_MEASUREMENT_FILTERING
   /* We check this here and when updating the mean path delay, because
-   * we can get here without a delay response too */
+   * we can get here without a delay response too. The tolerance on
+   * accepting follow-up after a sync is high, because a PTP server
+   * doesn't have to prioritise sending FOLLOW_UP - its purpose is
+   * just to give us the accurate timestamp of the preceding SYNC */
   if (sync->follow_up_recv_time_local != GST_CLOCK_TIME_NONE
       && sync->follow_up_recv_time_local >
-      sync->sync_recv_time_local + 2 * domain->mean_path_delay) {
-    GST_WARNING ("Sync-follow-up delay for domain %u too big: %" GST_TIME_FORMAT
-        " > 2 * %" GST_TIME_FORMAT, domain->domain,
-        GST_TIME_ARGS (sync->follow_up_recv_time_local),
-        GST_TIME_ARGS (domain->mean_path_delay));
+      sync->sync_recv_time_local + 20 * domain->mean_path_delay) {
+    GstClockTimeDiff delay =
+        sync->follow_up_recv_time_local - sync->sync_recv_time_local;
+    GST_WARNING ("Sync-follow-up delay for domain %u too big: %"
+        GST_STIME_FORMAT " > 20 * %" GST_TIME_FORMAT, domain->domain,
+        GST_STIME_ARGS (delay), GST_TIME_ARGS (domain->mean_path_delay));
     synced = FALSE;
     gst_clock_get_calibration (GST_CLOCK_CAST (domain->domain_clock),
         &internal_time, &external_time, &rate_num, &rate_den);
@@ -1354,12 +1361,15 @@ update_mean_path_delay (PtpDomainData * domain, PtpPendingSync * sync)
 #endif
 
 #ifdef USE_MEASUREMENT_FILTERING
+  /* The tolerance on accepting follow-up after a sync is high, because
+   * a PTP server doesn't have to prioritise sending FOLLOW_UP - its purpose is
+   * just to give us the accurate timestamp of the preceding SYNC */
   if (sync->follow_up_recv_time_local != GST_CLOCK_TIME_NONE &&
       domain->mean_path_delay != 0
       && sync->follow_up_recv_time_local >
-      sync->sync_recv_time_local + 2 * domain->mean_path_delay) {
+      sync->sync_recv_time_local + 20 * domain->mean_path_delay) {
     GST_WARNING ("Sync-follow-up delay for domain %u too big: %" GST_TIME_FORMAT
-        " > 2 * %" GST_TIME_FORMAT, domain->domain,
+        " > 20 * %" GST_TIME_FORMAT, domain->domain,
         GST_TIME_ARGS (sync->follow_up_recv_time_local -
             sync->sync_recv_time_local),
         GST_TIME_ARGS (domain->mean_path_delay));
@@ -1381,10 +1391,14 @@ update_mean_path_delay (PtpDomainData * domain, PtpPendingSync * sync)
       sync->delay_resp_recv_time_local - sync->delay_req_send_time_local;
 
 #ifdef USE_MEASUREMENT_FILTERING
-  /* delay_req_delay is a RTT, so 2 times the path delay */
-  if (delay_req_delay > 4 * domain->mean_path_delay) {
+  /* delay_req_delay is a RTT, so 2 times the path delay is what we'd
+   * hope for, but some PTP systems don't prioritise sending DELAY_RESP,
+   * but they must still have placed an accurate reception timestamp.
+   * That means we should be quite tolerant about late DELAY_RESP, and
+   * mostly rely on filtering out jumps in the mean-path-delay elsewhere  */
+  if (delay_req_delay > 20 * domain->mean_path_delay) {
     GST_WARNING ("Delay-request-response delay for domain %u too big: %"
-        GST_TIME_FORMAT " > 4 * %" GST_TIME_FORMAT, domain->domain,
+        GST_TIME_FORMAT " > 20 * %" GST_TIME_FORMAT, domain->domain,
         GST_TIME_ARGS (delay_req_delay),
         GST_TIME_ARGS (domain->mean_path_delay));
     ret = FALSE;
@@ -1400,7 +1414,7 @@ update_mean_path_delay (PtpDomainData * domain, PtpPendingSync * sync)
   GST_DEBUG ("Delay request delay for domain %u: %" GST_TIME_FORMAT,
       domain->domain, GST_TIME_ARGS (delay_req_delay));
 
-#ifdef USE_MEASUREMENT_FILTERING
+#if defined(USE_MEASUREMENT_FILTERING) || defined(USE_MEDIAN_PRE_FILTERING)
 out:
 #endif
   if (g_atomic_int_get (&domain_stats_n_hooks)) {
@@ -1445,6 +1459,7 @@ handle_sync_message (PtpMessage * msg, GstClockTime receive_time)
     clock_name = g_strdup_printf ("ptp-clock-%u", domain->domain);
     domain->domain_clock =
         g_object_new (GST_TYPE_SYSTEM_CLOCK, "name", clock_name, NULL);
+    gst_object_ref_sink (domain->domain_clock);
     g_free (clock_name);
     g_queue_init (&domain->pending_syncs);
     domain->last_path_delays_missing = 9;
@@ -1991,7 +2006,6 @@ gst_ptp_is_initialized (void)
  * If @clock_id is %GST_PTP_CLOCK_ID_NONE, a clock id is automatically
  * generated from the MAC address of the first network interface.
  *
- *
  * This function is automatically called by gst_ptp_clock_new() with default
  * parameters if it wasn't called before.
  *
@@ -2112,6 +2126,7 @@ gst_ptp_init (guint64 clock_id, gchar ** interfaces)
   observation_system_clock =
       g_object_new (GST_TYPE_SYSTEM_CLOCK, "name", "ptp-observation-clock",
       NULL);
+  gst_object_ref_sink (observation_system_clock);
 
   initted = TRUE;
 
@@ -2367,8 +2382,9 @@ gst_ptp_clock_ensure_domain_clock (GstPtpClock * self)
       for (l = domain_clocks; l; l = l->next) {
         PtpDomainData *clock_data = l->data;
 
-        if (clock_data->domain == self->priv->domain
-            && clock_data->last_ptp_time != 0) {
+        if (clock_data->domain == self->priv->domain &&
+            clock_data->have_master_clock && clock_data->last_ptp_time != 0) {
+          GST_DEBUG ("Switching domain clock on domain %d", clock_data->domain);
           self->priv->domain_clock = clock_data->domain_clock;
           got_clock = TRUE;
           break;
@@ -2505,19 +2521,21 @@ gst_ptp_clock_get_internal_time (GstClock * clock)
  * If gst_ptp_init() was not called before, this will call gst_ptp_init() with
  * default parameters.
  *
- *
  * This clock only returns valid timestamps after it received the first
  * times from the PTP master clock on the network. Once this happens the
  * GstPtpClock::internal-clock property will become non-NULL. You can
  * check this with gst_clock_wait_for_sync(), the GstClock::synced signal and
  * gst_clock_is_synced().
  *
+ * Returns: (transfer full): A new #GstClock
+ *
  * Since: 1.6
  */
 GstClock *
 gst_ptp_clock_new (const gchar * name, guint domain)
 {
-  g_return_val_if_fail (name != NULL, NULL);
+  GstClock *clock;
+
   g_return_val_if_fail (domain <= G_MAXUINT8, NULL);
 
   if (!initted && !gst_ptp_init (GST_PTP_CLOCK_ID_NONE, NULL)) {
@@ -2525,8 +2543,13 @@ gst_ptp_clock_new (const gchar * name, guint domain)
     return NULL;
   }
 
-  return g_object_new (GST_TYPE_PTP_CLOCK, "name", name, "domain", domain,
+  clock = g_object_new (GST_TYPE_PTP_CLOCK, "name", name, "domain", domain,
       NULL);
+
+  /* Clear floating flag */
+  gst_object_ref_sink (clock);
+
+  return clock;
 }
 
 typedef struct

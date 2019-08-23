@@ -25,6 +25,7 @@
 
 /**
  * SECTION:gsturihandler
+ * @title: GstUriHandler
  * @short_description: Interface to ease URI handling in plugins.
  *
  * The #GstURIHandler is an interface that is implemented by Source and Sink
@@ -154,6 +155,9 @@ gst_uri_error_quark (void)
   return g_quark_from_static_string ("gst-uri-error-quark");
 }
 
+#define HEX_ESCAPE '%'
+
+#ifndef GST_REMOVE_DEPRECATED
 static const guchar acceptable[96] = {  /* X0   X1   X2   X3   X4   X5   X6   X7   X8   X9   XA   XB   XC   XD   XE   XF */
   0x00, 0x3F, 0x20, 0x20, 0x20, 0x00, 0x2C, 0x3F, 0x3F, 0x3F, 0x3F, 0x22, 0x20, 0x3F, 0x3F, 0x1C,       /* 2X  !"#$%&'()*+,-./   */
   0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x3F, 0x38, 0x20, 0x20, 0x2C, 0x20, 0x2C,       /* 3X 0123456789:;<=>?   */
@@ -172,8 +176,6 @@ typedef enum
   UNSAFE_HOST = 0x10,           /* Allows '/' and ':' and '@' */
   UNSAFE_SLASHES = 0x20         /* Allows all characters except for '/' and '%' */
 } UnsafeCharacterSet;
-
-#define HEX_ESCAPE '%'
 
 /*  Escape undesirable characters using %
  *  -------------------------------------
@@ -247,21 +249,7 @@ escape_string_internal (const gchar * string, UnsafeCharacterSet mask)
 
   return result;
 }
-
-/* escape_string:
- * @string: string to be escaped
- *
- * Escapes @string, replacing any and all special characters
- * with equivalent escape sequences.
- *
- * Return value: a newly allocated string equivalent to @string
- * but with all special characters escaped
- **/
-static gchar *
-escape_string (const gchar * string)
-{
-  return escape_string_internal (string, UNSAFE_ALL);
-}
+#endif
 
 static int
 hex_to_int (gchar c)
@@ -409,7 +397,7 @@ gst_uri_is_valid (const gchar * uri)
  * Extracts the protocol out of a given valid URI. The returned string must be
  * freed using g_free().
  *
- * Returns: The protocol for this URI.
+ * Returns: (nullable): The protocol for this URI.
  */
 gchar *
 gst_uri_get_protocol (const gchar * uri)
@@ -461,9 +449,9 @@ gst_uri_has_protocol (const gchar * uri, const gchar * protocol)
  *
  * Free-function: g_free
  *
- * Returns: (transfer full): the location for this URI. Returns %NULL if the
- *     URI isn't valid. If the URI does not contain a location, an empty
- *     string is returned.
+ * Returns: (transfer full) (nullable): the location for this URI. Returns
+ *     %NULL if the URI isn't valid. If the URI does not contain a location, an
+ *     empty string is returned.
  */
 gchar *
 gst_uri_get_location (const gchar * uri)
@@ -510,7 +498,10 @@ gst_uri_get_location (const gchar * uri)
  *
  * Returns: (transfer full): a new string for this URI. Returns %NULL if the
  *     given URI protocol is not valid, or the given location is %NULL.
+ *
+ * Deprecated: Use GstURI instead.
  */
+#ifndef GST_REMOVE_DEPRECATED
 gchar *
 gst_uri_construct (const gchar * protocol, const gchar * location)
 {
@@ -521,13 +512,14 @@ gst_uri_construct (const gchar * protocol, const gchar * location)
   g_return_val_if_fail (location != NULL, NULL);
 
   proto_lowercase = g_ascii_strdown (protocol, -1);
-  escaped = escape_string (location);
+  escaped = escape_string_internal (location, UNSAFE_PATH);
   retval = g_strdup_printf ("%s://%s", proto_lowercase, escaped);
   g_free (escaped);
   g_free (proto_lowercase);
 
   return retval;
 }
+#endif
 
 typedef struct
 {
@@ -626,7 +618,8 @@ gst_uri_protocol_is_supported (const GstURIType type, const gchar * protocol)
  *
  * Creates an element for handling the given URI.
  *
- * Returns: (transfer floating): a new element or %NULL if none could be created
+ * Returns: (transfer floating) (nullable): a new element or %NULL if none
+ * could be created
  */
 GstElement *
 gst_element_make_from_uri (const GstURIType type, const gchar * uri,
@@ -899,7 +892,7 @@ file_path_contains_relatives (const gchar * path)
 
 /**
  * gst_filename_to_uri:
- * @filename: absolute or relative file name path
+ * @filename: (type filename): absolute or relative file name path
  * @error: pointer to error, or %NULL
  *
  * Similar to g_filename_to_uri(), but attempts to handle relative file paths
@@ -960,6 +953,7 @@ beach:
 
 /**
  * SECTION:gsturi
+ * @title: GstUri
  * @short_description: URI parsing and manipulation.
  *
  * A #GstUri object can be used to parse and split a URI string into its
@@ -1506,7 +1500,7 @@ gst_uri_new_with_base (GstUri * base, const gchar * scheme,
  * Parses a URI string into a new #GstUri object. Will return NULL if the URI
  * cannot be parsed.
  *
- * Returns: (transfer full)(nullable): A new #GstUri object, or NULL.
+ * Returns: (transfer full) (nullable): A new #GstUri object, or NULL.
  *
  * Since: 1.6
  */
@@ -1556,7 +1550,7 @@ gst_uri_from_string (const gchar * uri)
         if (eoh == NULL || eoh > eoa) {
           GST_DEBUG ("Unable to parse the host part of the URI '%s'.",
               orig_uri);
-          _gst_uri_free (uri_obj);
+          gst_uri_unref (uri_obj);
           return NULL;
         }
         reoh = eoh + 1;
@@ -1576,7 +1570,7 @@ gst_uri_from_string (const gchar * uri)
         if (uri[0] != ':' || strspn (uri + 1, "0123456789") != eoa - uri - 1) {
           GST_DEBUG ("Unable to parse host/port part of the URI '%s'.",
               orig_uri);
-          _gst_uri_free (uri_obj);
+          gst_uri_unref (uri_obj);
           return NULL;
         }
         /* otherwise treat port as unsigned decimal number */
@@ -1768,16 +1762,16 @@ gst_uri_equal (const GstUri * first, const GstUri * second)
 
 /**
  * gst_uri_join:
- * @base_uri: (transfer none)(nullable): The base URI to join another to.
- * @ref_uri: (transfer none)(nullable): The reference URI to join onto the
- *                                        base URI.
+ * @base_uri: (transfer none) (nullable): The base URI to join another to.
+ * @ref_uri: (transfer none) (nullable): The reference URI to join onto the
+ *                                       base URI.
  *
  * Join a reference URI onto a base URI using the method from RFC 3986.
  * If either URI is %NULL then the other URI will be returned with the ref count
  * increased.
  *
- * Returns: (transfer full): A #GstUri which represents the base with the
- *                           reference URI joined on.
+ * Returns: (transfer full) (nullable): A #GstUri which represents the base
+ *                                      with the reference URI joined on.
  *
  * Since: 1.6
  */
@@ -2085,7 +2079,7 @@ gst_uri_normalize (GstUri * uri)
  * Get the scheme name from the URI or %NULL if it doesn't exist.
  * If @uri is %NULL then returns %NULL.
  *
- * Returns: The scheme from the #GstUri object or %NULL.
+ * Returns: (nullable): The scheme from the #GstUri object or %NULL.
  */
 const gchar *
 gst_uri_get_scheme (const GstUri * uri)
@@ -2125,7 +2119,7 @@ gst_uri_set_scheme (GstUri * uri, const gchar * scheme)
  * Get the userinfo (usually in the form "username:password") from the URI
  * or %NULL if it doesn't exist. If @uri is %NULL then returns %NULL.
  *
- * Returns: The userinfo from the #GstUri object or %NULL.
+ * Returns: (nullable): The userinfo from the #GstUri object or %NULL.
  *
  * Since: 1.6
  */
@@ -2167,7 +2161,7 @@ gst_uri_set_userinfo (GstUri * uri, const gchar * userinfo)
  * Get the host name from the URI or %NULL if it doesn't exist.
  * If @uri is %NULL then returns %NULL.
  *
- * Returns: The host name from the #GstUri object or %NULL.
+ * Returns: (nullable): The host name from the #GstUri object or %NULL.
  *
  * Since: 1.6
  */
@@ -2249,8 +2243,8 @@ gst_uri_set_port (GstUri * uri, guint port)
  *
  * Extract the path string from the URI object.
  *
- * Returns: (transfer full): The path from the URI. Once finished with the
- *                           string should be g_free()'d.
+ * Returns: (transfer full) (nullable): The path from the URI. Once finished
+ *                                      with the string should be g_free()'d.
  *
  * Since: 1.6
  */
@@ -2283,7 +2277,7 @@ gst_uri_get_path (const GstUri * uri)
 
 /**
  * gst_uri_set_path:
- * @uri: (transfer none)(nullable): The #GstUri to modify.
+ * @uri: (transfer none) (nullable): The #GstUri to modify.
  * @path: The new path to set with path segments separated by '/', or use %NULL
  *        to unset the path.
  *
@@ -2312,8 +2306,8 @@ gst_uri_set_path (GstUri * uri, const gchar * path)
  *
  * Extract the path string from the URI object as a percent encoded URI path.
  *
- * Returns: (transfer full): The path from the URI. Once finished with the
- *                           string should be g_free()'d.
+ * Returns: (transfer full) (nullable): The path from the URI. Once finished
+ *                                      with the string should be g_free()'d.
  *
  * Since: 1.6
  */
@@ -2377,7 +2371,7 @@ gst_uri_set_path_string (GstUri * uri, const gchar * path)
  *
  * Get a list of path segments from the URI.
  *
- * Returns: (transfer full)(element-type gchar*): A #GList of path segment
+ * Returns: (transfer full) (element-type gchar*): A #GList of path segment
  *          strings or %NULL if no path segments are available. Free the list
  *          when no longer needed with g_list_free_full(list, g_free).
  *
@@ -2499,8 +2493,8 @@ gst_uri_append_path_segment (GstUri * uri, const gchar * path_segment)
  *
  * Get a percent encoded URI query string from the @uri.
  *
- * Returns: (transfer full): A percent encoded query string. Use g_free() when
- *          no longer needed.
+ * Returns: (transfer full) (nullable): A percent encoded query string. Use
+ *                                      g_free() when no longer needed.
  *
  * Since: 1.6
  */
@@ -2575,8 +2569,8 @@ gst_uri_set_query_string (GstUri * uri, const gchar * query)
  * no longer required. Modifying this hash table will modify the query in the
  * URI.
  *
- * Returns: (transfer full)(element-type gchar* gchar*): The query hash table
- *          from the URI.
+ * Returns: (transfer full) (element-type gchar* gchar*) (nullable): The query
+ *          hash table from the URI.
  *
  * Since: 1.6
  */
@@ -2723,7 +2717,7 @@ gst_uri_query_has_key (const GstUri * uri, const gchar * query_key)
  * use gst_uri_query_has_key() to determine if a key is present in the URI
  * query.
  *
- * Returns: The value for the given key, or %NULL if not found.
+ * Returns: (nullable): The value for the given key, or %NULL if not found.
  *
  * Since: 1.6
  */
@@ -2745,7 +2739,7 @@ gst_uri_get_query_value (const GstUri * uri, const gchar * query_key)
  *
  * Get a list of the query keys from the URI.
  *
- * Returns: (transfer container)(element-type gchar*): A list of keys from
+ * Returns: (transfer container) (element-type gchar*): A list of keys from
  *          the URI query. Free the list with g_list_free().
  *
  * Since: 1.6
@@ -2769,7 +2763,7 @@ gst_uri_get_query_keys (const GstUri * uri)
  * Get the fragment name from the URI or %NULL if it doesn't exist.
  * If @uri is %NULL then returns %NULL.
  *
- * Returns: The host name from the #GstUri object or %NULL.
+ * Returns: (nullable): The host name from the #GstUri object or %NULL.
  *
  * Since: 1.6
  */
@@ -2802,4 +2796,35 @@ gst_uri_set_fragment (GstUri * uri, const gchar * fragment)
   g_free (uri->fragment);
   uri->fragment = g_strdup (fragment);
   return TRUE;
+}
+
+/**
+ * gst_uri_get_media_fragment_table:
+ * @uri: (nullable): The #GstUri to get the fragment table from.
+ *
+ * Get the media fragment table from the URI, as defined by "Media Fragments URI 1.0".
+ * Hash table returned by this API is a list of "key-value" pairs, and the each
+ * pair is generated by splitting "URI fragment" per "&" sub-delims, then "key"
+ * and "value" are splitted by "=" sub-delims. The "key" returned by this API may
+ * be undefined keyword by standard.
+ * A value may be %NULL to indicate that the key should appear in the fragment
+ * string in the URI, but does not have a value. Free the returned #GHashTable
+ * with #g_hash_table_unref() when it is no longer required.
+ * Modifying this hash table does not affect the fragment in the URI.
+ *
+ * See more about Media Fragments URI 1.0 (W3C) at https://www.w3.org/TR/media-frags/
+ *
+ * Returns: (transfer full) (element-type gchar* gchar*) (nullable): The
+ *          fragment hash table from the URI.
+ *
+ * Since: 1.12
+ */
+GHashTable *
+gst_uri_get_media_fragment_table (const GstUri * uri)
+{
+  g_return_val_if_fail (uri == NULL || GST_IS_URI (uri), NULL);
+
+  if (!uri->fragment)
+    return NULL;
+  return _gst_uri_string_to_table (uri->fragment, "&", "=", TRUE, TRUE);
 }

@@ -28,6 +28,7 @@ libgstcheck_@GST_API_VERSION@includedir =		\
 
 libgstcheck_@GST_API_VERSION@include_HEADERS =	\
 	check.h					\
+	check-prelude.h				\
 	gstbufferstraw.h			\
 	gstcheck.h				\
 	gstconsistencychecker.h			\
@@ -51,6 +52,7 @@ LIBGSTCHECK_EXPORTED_VARS = \
 	_gst_check_raised_critical \
 	_gst_check_raised_warning \
 	_gst_check_expecting_log \
+	_gst_check_list_tests \
 	buffers \
 	check_cond \
 	check_debug \
@@ -73,6 +75,9 @@ LIBGSTCHECK_EXPORTED_FUNCS = \
 	gst_check_element_push_buffer \
 	gst_check_element_push_buffer_list \
 	gst_check_init \
+	gst_check_add_log_filter \
+	gst_check_remove_log_filter \
+	gst_check_clear_log_filter \
 	gst_check_message_error \
 	gst_check_run_suite \
 	gst_check_setup_element \
@@ -98,6 +103,7 @@ LIBGSTCHECK_EXPORTED_FUNCS = \
 	gst_consistency_checker_free \
 	gst_harness_add_element_full \
 	gst_harness_add_element_src_pad \
+	gst_harness_add_element_sink_pad \
 	gst_harness_add_parse \
 	gst_harness_add_probe \
 	gst_harness_add_sink \
@@ -106,14 +112,14 @@ LIBGSTCHECK_EXPORTED_FUNCS = \
 	gst_harness_add_src \
 	gst_harness_add_src_harness \
 	gst_harness_add_src_parse \
-	gst_harness_buffers_received \
 	gst_harness_buffers_in_queue \
+	gst_harness_buffers_received \
 	gst_harness_crank_multiple_clock_waits \
 	gst_harness_crank_single_clock_wait \
 	gst_harness_create_buffer \
 	gst_harness_dump_to_file \
-	gst_harness_events_received \
 	gst_harness_events_in_queue \
+	gst_harness_events_received \
 	gst_harness_find_element \
 	gst_harness_get \
 	gst_harness_get_allocator \
@@ -164,12 +170,15 @@ LIBGSTCHECK_EXPORTED_FUNCS = \
 	gst_harness_stress_requestpad_start_full \
 	gst_harness_stress_statechange_start_full \
 	gst_harness_stress_thread_stop \
+	gst_harness_take_all_data \
+	gst_harness_take_all_data_as_buffer \
+	gst_harness_take_all_data_as_bytes \
 	gst_harness_teardown \
 	gst_harness_try_pull \
 	gst_harness_try_pull_event \
 	gst_harness_try_pull_upstream_event \
-	gst_harness_upstream_events_received \
 	gst_harness_upstream_events_in_queue \
+	gst_harness_upstream_events_received \
 	gst_harness_use_systemclock \
 	gst_harness_use_testclock \
 	gst_harness_wait_for_clock_id_waits \
@@ -221,7 +230,8 @@ gir_sources=$(patsubst %,$(srcdir)/%, $(libgstcheck_@GST_API_VERSION@_la_SOURCES
 
 GstCheck-@GST_API_VERSION@.gir: $(INTROSPECTION_SCANNER) libgstcheck-@GST_API_VERSION@.la
 	$(AM_V_GEN)PKG_CONFIG_PATH="$(GST_PKG_CONFIG_PATH)" GI_SCANNER_DISABLE_CACHE=yes\
-		GST_PLUGIN_SYSTEM_PATH_1_0="" GST_PLUGIN_PATH_1_0="" GST_REGISTRY_UPDATE=no \
+		GST_PLUGIN_SYSTEM_PATH_1_0="" GST_PLUGIN_PATH_1_0="" GST_REGISTRY_DISABLE=yes \
+		CPPFLAGS="$(CPPFLAGS)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" CC="$(CC)" PKG_CONFIG="$(PKG_CONFIG)" DLLTOOL="$(DLLTOOL)" \
 		$(INTROSPECTION_SCANNER) -v --namespace GstCheck \
 		--nsversion=@GST_API_VERSION@ \
 		--identifier-prefix=Gst \

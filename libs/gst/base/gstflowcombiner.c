@@ -23,6 +23,7 @@
 
 /**
  * SECTION:gstflowcombiner
+ * @title: GstFlowCombiner
  * @short_description: Utility to combine multiple flow returns into one
  *
  * Utility struct to help handling #GstFlowReturn combination. Useful for
@@ -71,12 +72,14 @@ struct _GstFlowCombiner
   volatile gint ref_count;
 };
 
-static GstFlowCombiner *gst_flow_combiner_ref (GstFlowCombiner * combiner);
-static void gst_flow_combiner_unref (GstFlowCombiner * combiner);
+GST_DEBUG_CATEGORY_STATIC (flowcombiner_dbg);
+#define GST_CAT_DEFAULT flowcombiner_dbg
 
-G_DEFINE_BOXED_TYPE (GstFlowCombiner, gst_flow_combiner,
+G_DEFINE_BOXED_TYPE_WITH_CODE (GstFlowCombiner, gst_flow_combiner,
     (GBoxedCopyFunc) gst_flow_combiner_ref,
-    (GBoxedFreeFunc) gst_flow_combiner_unref);
+    (GBoxedFreeFunc) gst_flow_combiner_unref,
+    GST_DEBUG_CATEGORY_INIT (flowcombiner_dbg, "flowcombiner", 0,
+        "Flow Combiner"));
 
 /**
  * gst_flow_combiner_new:
@@ -95,6 +98,9 @@ gst_flow_combiner_new (void)
   combiner->last_ret = GST_FLOW_OK;
   combiner->ref_count = 1;
 
+  /* Make sure debug category is initialised */
+  gst_flow_combiner_get_type ();
+
   return combiner;
 }
 
@@ -112,7 +118,17 @@ gst_flow_combiner_free (GstFlowCombiner * combiner)
   gst_flow_combiner_unref (combiner);
 }
 
-static GstFlowCombiner *
+/**
+ * gst_flow_combiner_ref:
+ * @combiner: the #GstFlowCombiner to add a reference to.
+ *
+ * Increments the reference count on the #GstFlowCombiner.
+ *
+ * Returns: the #GstFlowCombiner.
+ *
+ * Since: 1.12.1
+ */
+GstFlowCombiner *
 gst_flow_combiner_ref (GstFlowCombiner * combiner)
 {
   g_return_val_if_fail (combiner != NULL, NULL);
@@ -122,7 +138,15 @@ gst_flow_combiner_ref (GstFlowCombiner * combiner)
   return combiner;
 }
 
-static void
+/**
+ * gst_flow_combiner_unref:
+ * @combiner: the #GstFlowCombiner to unreference.
+ *
+ * Decrements the reference count on the #GstFlowCombiner.
+ *
+ * Since: 1.12.1
+ */
+void
 gst_flow_combiner_unref (GstFlowCombiner * combiner)
 {
   g_return_if_fail (combiner != NULL);
@@ -162,7 +186,7 @@ gst_flow_combiner_clear (GstFlowCombiner * combiner)
  * gst_flow_combiner_reset:
  * @combiner: the #GstFlowCombiner to clear
  *
- * Removes all pads from a #GstFlowCombiner and resets it to its initial state.
+ * Reset flow combiner and all pads to their initial state without removing pads.
  *
  * Since: 1.6
  */

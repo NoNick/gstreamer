@@ -24,6 +24,7 @@
 
 #include <glib.h>
 #include <glib-object.h>
+#include <gst/gstobject.h>
 #include <gst/gstconfig.h>
 
 G_BEGIN_DECLS
@@ -54,14 +55,18 @@ struct _GstTracerClass {
   gpointer _gst_reserved[GST_PADDING];
 };
 
+GST_API
 GType gst_tracer_get_type          (void);
 
 #ifdef GST_USE_UNSTABLE_API
 
+GST_API
 void gst_tracing_register_hook (GstTracer *tracer, const gchar *detail,
   GCallback func);
 
 /* tracing modules */
+
+GST_API
 gboolean gst_tracer_register (GstPlugin * plugin, const gchar * name, GType type);
 
 #endif

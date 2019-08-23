@@ -20,6 +20,7 @@
  */
 /**
  * SECTION:element-typefind
+ * @title: typefind
  *
  * Determines the media-type of a stream. It applies typefind functions in the
  * order of their rank. Once the type has been detected it sets its src pad caps
@@ -450,6 +451,8 @@ gst_type_find_handle_src_query (GstPad * pad, GstObject * parent,
       switch (format) {
         case GST_FORMAT_BYTES:
           peer_pos -= gst_adapter_available (typefind->adapter);
+          if (peer_pos < 0)     /* Clamp result to 0 */
+            peer_pos = 0;
           break;
         default:
           /* FIXME */
@@ -554,8 +557,14 @@ gst_type_find_element_src_event (GstPad * pad, GstObject * parent,
   GstTypeFindElement *typefind = GST_TYPE_FIND_ELEMENT (parent);
   gboolean result;
 
+  /* Always forward RECONFIGURE events upstream */
+  if (GST_EVENT_TYPE (event) == GST_EVENT_RECONFIGURE) {
+    return gst_pad_push_event (typefind->sink, event);
+  }
+
   if (typefind->mode != MODE_NORMAL) {
     /* need to do more? */
+    GST_LOG_OBJECT (typefind, "Still typefinding. Not passing event upstream");
     gst_event_unref (event);
     return FALSE;
   }
@@ -781,6 +790,8 @@ gst_type_find_element_setcaps (GstTypeFindElement * typefind, GstCaps * caps)
   if (gst_caps_is_any (caps))
     return TRUE;
 
+  /* Set to MODE_NORMAL before emitting have-type, in case it triggers a seek */
+  typefind->mode = MODE_NORMAL;
   gst_type_find_element_emit_have_type (typefind, GST_TYPE_FIND_MAXIMUM, caps);
 
   /* Shortcircuit typefinding if we get caps */
@@ -835,19 +846,19 @@ gst_type_find_get_extension (GstTypeFindElement * typefind, GstPad * pad)
   /* ERRORS */
 peer_query_failed:
   {
-    GST_WARNING_OBJECT (typefind, "failed to query peer uri");
+    GST_INFO_OBJECT (typefind, "failed to query peer uri");
     gst_query_unref (query);
     return NULL;
   }
 no_uri:
   {
-    GST_WARNING_OBJECT (typefind, "could not parse the peer uri");
+    GST_INFO_OBJECT (typefind, "could not parse the peer uri");
     gst_query_unref (query);
     return NULL;
   }
 no_extension:
   {
-    GST_WARNING_OBJECT (typefind, "could not find uri extension in %s", uri);
+    GST_INFO_OBJECT (typefind, "could not find uri extension in %s", uri);
     gst_query_unref (query);
     g_free (uri);
     return NULL;
@@ -965,6 +976,8 @@ gst_type_find_element_chain_do_typefinding (GstTypeFindElement * typefind,
 
   /* probability is good enough too, so let's make it known ... emiting this
    * signal calls our object handler which sets the caps. */
+  /* Set to MODE_NORMAL before emitting have-type, in case it triggers a seek */
+  typefind->mode = MODE_NORMAL;
   gst_type_find_element_emit_have_type (typefind, probability, caps);
 
   /* .. and send out the accumulated data */
@@ -1128,16 +1141,19 @@ gst_type_find_element_loop (GstPad * pad)
         }
         ext = gst_type_find_get_extension (typefind, pad);
 
-        found_caps =
-            gst_type_find_helper_get_range (GST_OBJECT_CAST (peer),
+        ret =
+            gst_type_find_helper_get_range_full (GST_OBJECT_CAST (peer),
             GST_OBJECT_PARENT (peer),
             (GstTypeFindHelperGetRangeFunction) (GST_PAD_GETRANGEFUNC (peer)),
-            (guint64) size, ext, &probability);
+            (guint64) size, ext, &found_caps, &probability);
         g_free (ext);
 
         GST_DEBUG ("Found caps %" GST_PTR_FORMAT, found_caps);
 
         gst_object_unref (peer);
+
+        if (ret != GST_FLOW_OK)
+          goto pause;
       }
     }
 
@@ -1156,8 +1172,9 @@ gst_type_find_element_loop (GstPad * pad)
     }
 
     GST_DEBUG ("Emiting found caps %" GST_PTR_FORMAT, found_caps);
-    gst_type_find_element_emit_have_type (typefind, probability, found_caps);
+    /* Set to MODE_NORMAL before emitting have-type, in case it triggers a seek */
     typefind->mode = MODE_NORMAL;
+    gst_type_find_element_emit_have_type (typefind, probability, found_caps);
     gst_caps_unref (found_caps);
   } else if (typefind->mode == MODE_NORMAL) {
     GstBuffer *outbuf = NULL;
@@ -1216,8 +1233,7 @@ pause:
       }
     } else if (ret == GST_FLOW_NOT_LINKED || ret < GST_FLOW_EOS) {
       /* for fatal errors we post an error message */
-      GST_ELEMENT_ERROR (typefind, STREAM, FAILED, (NULL),
-          ("stream stopped, reason %s", reason));
+      GST_ELEMENT_FLOW_ERROR (typefind, ret);
       push_eos = TRUE;
     }
     if (push_eos) {
@@ -1273,7 +1289,6 @@ gst_type_find_element_activate_sink (GstPad * pad, GstObject * parent)
 {
   GstQuery *query;
   gboolean pull_mode;
-  GstSchedulingFlags sched_flags;
 
   query = gst_query_new_scheduling ();
 
@@ -1282,10 +1297,8 @@ gst_type_find_element_activate_sink (GstPad * pad, GstObject * parent)
     goto typefind_push;
   }
 
-  gst_query_parse_scheduling (query, &sched_flags, NULL, NULL, NULL);
-
-  pull_mode = gst_query_has_scheduling_mode (query, GST_PAD_MODE_PULL)
-      && ((sched_flags & GST_SCHEDULING_FLAG_SEEKABLE) != 0);
+  pull_mode = gst_query_has_scheduling_mode_with_flags (query,
+      GST_PAD_MODE_PULL, GST_SCHEDULING_FLAG_SEEKABLE);
 
   gst_query_unref (query);
 

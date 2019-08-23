@@ -1,19 +1,20 @@
 # Polish translation for gstreamer.
 # This file is distributed under the same license as the gstreamer package.
-# Jakub Bogusz <qboosh@pld-linux.org>, 2007-2016.
+# Jakub Bogusz <qboosh@pld-linux.org>, 2007-2017.
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: gstreamer 1.7.2\n"
+"Project-Id-Version: gstreamer 1.12.0\n"
 "Report-Msgid-Bugs-To: http://bugzilla.gnome.org/\n"
-"POT-Creation-Date: 2016-04-20 15:26+0300\n"
-"PO-Revision-Date: 2016-02-20 21:41+0100\n"
+"POT-Creation-Date: 2018-02-15 11:27+0000\n"
+"PO-Revision-Date: 2017-05-08 18:54+0200\n"
 "Last-Translator: Jakub Bogusz <qboosh@pld-linux.org>\n"
 "Language-Team: Polish <translation-team-pl@lists.sourceforge.net>\n"
 "Language: pl\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+"X-Bugs: Report translation errors to the Language-Team address.\n"
 "Plural-Forms: nplurals=3; plural=(n==1 ? 0 : n%10>=2 && n%10<=4 && (n%100<10 "
 "|| n%100>=20) ? 1 : 2);\n"
 
@@ -454,10 +455,10 @@ msgid "person(s) who composed the recording"
 msgstr "osoba lub osoby, które skomponowały to nagranie"
 
 msgid "conductor"
-msgstr ""
+msgstr "dyrygent"
 
 msgid "conductor/performer refinement"
-msgstr ""
+msgstr "wyszczególnienie dyrygenta/wykonawcy"
 
 msgid "duration"
 msgstr "czas trwania"
@@ -875,6 +876,19 @@ msgid "Delayed linking failed."
 msgstr "Opóźnione dowiązanie nie powiodło się."
 
 #, c-format
+msgid "could not link %s to %s, %s can't handle caps %s"
+msgstr "nie udało się dowiązać %s do %s, %s nie może obsłużyć możliwości %s"
+
+#, c-format
+msgid "could not link %s to %s, neither element can handle caps %s"
+msgstr ""
+"nie udało się dowiązać %s do %s, żaden element nie obsługuje możliwości %s"
+
+#, c-format
+msgid "could not link %s to %s with caps %s"
+msgstr "nie udało się dowiązać %s do %s z możliwościami %s"
+
+#, c-format
 msgid "could not link %s to %s"
 msgstr "nie udało się dowiązać %s do %s"
 
@@ -905,9 +919,6 @@ msgstr "brak elementu źródłowego dla URI \"%s\""
 msgid "syntax error"
 msgstr "błąd składni"
 
-msgid "bin"
-msgstr "kontener"
-
 #, c-format
 msgid "specified empty bin \"%s\", not allowed"
 msgstr "podano pusty kontener \"%s\", nie jest to dozwolone"
@@ -924,9 +935,6 @@ msgstr "Wiele buforów zostało zgubionych."
 
 msgid "Internal data flow problem."
 msgstr "Wewnętrzny problem przepływu danych."
-
-msgid "Internal data stream error."
-msgstr "Wewnętrzny błąd strumienia danych."
 
 msgid "Internal data flow error."
 msgstr "Wewnętrzny błąd przepływu danych."
@@ -1102,6 +1110,13 @@ msgstr ""
 
 msgid "List the plugin contents"
 msgstr "Wypisanie zawartości wtyczek"
+
+msgid ""
+"A slashes ('/') separated list of types of elements (also known as klass) to "
+"list. (unordered)"
+msgstr ""
+"Lista rozdzielonych ukośnikami ('/') typów elementów (znanych jako klass) do "
+"wypisania (nie uporządkowana)."
 
 msgid "Check if the specified element or plugin exists"
 msgstr "Sprawdzenie, czy podany element lub wtyczka istnieje"

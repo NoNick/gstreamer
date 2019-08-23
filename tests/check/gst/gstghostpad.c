@@ -18,6 +18,9 @@
  * Free Software Foundation, Inc., 51 Franklin St, Fifth Floor,
  * Boston, MA 02110-1301, USA.
  */
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
 
 #include <gst/check/gstcheck.h>
 #include <gst/check/gstharness.h>
@@ -1321,6 +1324,84 @@ GST_START_TEST (test_activate_sink_switch_mode)
 
 GST_END_TEST;
 
+static gboolean thread_running;
+
+static gpointer
+send_query_to_pad_func (GstPad * pad)
+{
+  GstQuery *query = gst_query_new_latency ();
+
+  while (thread_running) {
+    gst_pad_peer_query (pad, query);
+    g_thread_yield ();
+  }
+
+  gst_query_unref (query);
+  return NULL;
+}
+
+GST_START_TEST (test_stress_upstream_queries_while_tearing_down)
+{
+  GThread *query_thread;
+  gint i;
+  GstPad *pad = gst_pad_new ("sink", GST_PAD_SINK);
+  gst_pad_set_active (pad, TRUE);
+
+  thread_running = TRUE;
+  query_thread = g_thread_new ("queries",
+      (GThreadFunc) send_query_to_pad_func, pad);
+
+  for (i = 0; i < 1000; i++) {
+    GstPad *ghostpad = gst_ghost_pad_new ("ghost-sink", pad);
+    gst_pad_set_active (ghostpad, TRUE);
+
+    g_thread_yield ();
+
+    gst_ghost_pad_set_target (GST_GHOST_PAD_CAST (ghostpad), NULL);
+    gst_pad_set_active (pad, FALSE);
+    gst_object_unref (ghostpad);
+  }
+
+  thread_running = FALSE;
+  g_thread_join (query_thread);
+
+  gst_object_unref (pad);
+}
+
+GST_END_TEST;
+
+GST_START_TEST (test_deactivate_already_deactive_with_no_parent)
+{
+  /* This simulates the behavior where a ghostpad is released while
+   * deactivating (for instance because of a state change).
+   * gst_pad_activate_mode() may be be called from
+   * gst_ghost_pad_internal_activate_push_default() on a pad that is already
+   * deactivate and unparented. The call chain is really like somethink like
+   * this:
+   *   gst_pad_activate_mode(ghostpad)
+   *    -> ...
+   *    -> gst_pad_activate_mode(proxypad)
+   *    -> ...
+   *    -> gst_pad_activate_mode(ghostpad)
+   */
+  GstElement *bin = gst_bin_new ("testbin");
+  GstPad *pad = gst_ghost_pad_new_no_target ("src", GST_PAD_SRC);
+  gst_object_ref (pad);
+
+  /* We need to add/remove pad because that will update the pad's flags */
+  fail_unless (gst_element_add_pad (bin, pad));
+  fail_unless (gst_element_remove_pad (bin, pad));
+
+  /* Setting a pad that's already deactive to deactive should not fail. */
+  fail_if (gst_pad_is_active (pad));
+  fail_unless (gst_pad_activate_mode (pad, GST_PAD_MODE_PUSH, FALSE));
+
+  gst_object_unref (bin);
+  gst_object_unref (pad);
+}
+
+GST_END_TEST;
+
 static Suite *
 gst_ghost_pad_suite (void)
 {
@@ -1351,6 +1432,8 @@ gst_ghost_pad_suite (void)
   tcase_add_test (tc_chain, test_activate_sink_and_src);
   tcase_add_test (tc_chain, test_activate_src_pull_mode);
   tcase_add_test (tc_chain, test_activate_sink_switch_mode);
+  tcase_add_test (tc_chain, test_deactivate_already_deactive_with_no_parent);
+  tcase_add_test (tc_chain, test_stress_upstream_queries_while_tearing_down);
 
   return s;
 }

@@ -28,6 +28,7 @@
 
 /**
  * SECTION:gstsegment
+ * @title: GstSegment
  * @short_description: Structure describing the configured region of interest
  *                     in a media file.
  * @see_also: #GstEvent
@@ -36,10 +37,9 @@
  * interest in a media file, called a segment.
  *
  * The structure can be used for two purposes:
- * <itemizedlist>
- *   <listitem><para>performing seeks (handling seek events)</para></listitem>
- *   <listitem><para>tracking playback regions (handling newsegment events)</para></listitem>
- * </itemizedlist>
+ *
+ *   * performing seeks (handling seek events)
+ *   * tracking playback regions (handling newsegment events)
  *
  * The segment is usually configured by the application with a seek event which
  * is propagated upstream and eventually handled by an element that performs the seek.
@@ -79,6 +79,12 @@
  * For elements that need to perform operations on media data in stream_time,
  * gst_segment_to_stream_time() can be used to convert a timestamp and the segment
  * info to stream time (which is always between 0 and the duration of the stream).
+ */
+
+/* FIXME 2.0: remove unused format parameter.
+ * Most of the methods in gstsegment.c take and extra GstFormat format, just to
+ * verify segment->format == format.
+ * See https://bugzilla.gnome.org/show_bug.cgi?id=788979
  */
 
 /**
@@ -190,7 +196,7 @@ gst_segment_init (GstSegment * segment, GstFormat format)
  * @start: the seek start value
  * @stop_type: the seek method
  * @stop: the seek stop value
- * @update: boolean holding whether position was updated.
+ * @update: (out) (allow-none): boolean holding whether position was updated.
  *
  * Update the segment structure with the field values of a seek event (see
  * gst_event_new_seek()).
@@ -379,7 +385,7 @@ gst_segment_do_seek (GstSegment * segment, gdouble rate,
  * @segment: a #GstSegment structure.
  * @format: the format of the segment.
  * @position: the position in the segment
- * @stream_time: result stream-time
+ * @stream_time: (out): result stream-time
  *
  * Translate @position to the total stream time using the currently configured
  * segment. Compared to gst_segment_to_stream_time() this function can return
@@ -537,7 +543,7 @@ gst_segment_to_stream_time (const GstSegment * segment, GstFormat format,
  * @segment: a #GstSegment structure.
  * @format: the format of the segment.
  * @stream_time: the stream-time
- * @position: the resulting position in the segment
+ * @position: (out): the resulting position in the segment
  *
  * Translate @stream_time to the segment position using the currently configured
  * segment. Compared to gst_segment_position_from_stream_time() this function can
@@ -696,7 +702,7 @@ gst_segment_position_from_stream_time (const GstSegment * segment,
  * @segment: a #GstSegment structure.
  * @format: the format of the segment.
  * @position: the position in the segment
- * @running_time: result running-time
+ * @running_time: (out) (allow-none): result running-time
  *
  * Translate @position to the total running time using the currently configured
  * segment. Compared to gst_segment_to_running_time() this function can return
@@ -751,6 +757,9 @@ gst_segment_to_running_time_full (const GstSegment * segment, GstFormat format,
     }
   } else {
     stop = segment->stop;
+
+    if (stop == -1 && segment->duration != -1)
+      stop = segment->start + segment->duration;
 
     /* cannot continue if no stop position set or invalid offset */
     g_return_val_if_fail (stop != -1, 0);
@@ -884,8 +893,11 @@ gst_segment_clip (const GstSegment * segment, GstFormat format, guint64 start,
   g_return_val_if_fail (segment->format == format, FALSE);
 
   /* if we have a stop position and a valid start and start is bigger,
-   * we're outside of the segment */
-  if (G_UNLIKELY (segment->stop != -1 && start != -1 && start >= segment->stop))
+   * we're outside of the segment. (Special case) segment start and
+   * segment stop can be identical. In this case, if start is also identical,
+   * it's inside of segment */
+  if (G_UNLIKELY (segment->stop != -1 && start != -1 && (start > segment->stop
+              || (segment->start != segment->stop && start == segment->stop))))
     return FALSE;
 
   /* if a stop position is given and is before the segment start,
@@ -968,7 +980,7 @@ gst_segment_position_from_running_time (const GstSegment * segment,
  * @segment: a #GstSegment structure.
  * @format: the format of the segment.
  * @running_time: the running-time
- * @position: the resulting position in the segment
+ * @position: (out): the resulting position in the segment
  *
  * Translate @running_time to the segment position using the currently configured
  * segment. Compared to gst_segment_position_from_running_time() this function can
@@ -983,8 +995,9 @@ gst_segment_position_from_running_time (const GstSegment * segment,
  * When 1 is returned, @running_time resulted in a positive position returned
  * in @position.
  *
- * When this function returns -1, the returned @position should be negated
- * to get the real negative segment position.
+ * When this function returns -1, the returned @position was < 0, and the value
+ * in the position variable should be negated to get the real negative segment
+ * position.
  *
  * Returns: a 1 or -1 on success, 0 on failure.
  *
@@ -1027,12 +1040,15 @@ gst_segment_position_from_running_time_full (const GstSegment * segment,
       *position = base - running_time;
       if (G_UNLIKELY (abs_rate != 1.0))
         *position = ceil (*position * abs_rate);
-      if (start + segment->offset > *position) {
-        *position -= start + segment->offset;
-        res = -1;
-      } else {
+      if (start + segment->offset >= *position) {
+        /* The TS is before the segment, but the result is >= 0 */
         *position = start + segment->offset - *position;
         res = 1;
+      } else {
+        /* The TS is before the segment, and the result is < 0
+         * so negate the return result */
+        *position = *position - (start + segment->offset);
+        res = -1;
       }
     }
   } else {
@@ -1048,15 +1064,24 @@ gst_segment_position_from_running_time_full (const GstSegment * segment,
         res = 1;
       }
     } else {
+      /* This case is tricky. Requested running time precedes the
+       * segment base, so in a reversed segment where rate < 0, that
+       * means it's before the alignment point of (stop - offset).
+       * Before = always bigger than (stop-offset), which is usually +ve,
+       * but could be -ve is offset is big enough. -ve position implies
+       * that the offset has clipped away the entire segment anyway */
       *position = base - running_time;
       if (G_UNLIKELY (abs_rate != 1.0))
         *position = ceil (*position * abs_rate);
-      if (G_UNLIKELY (stop < segment->offset - *position)) {
-        *position -= segment->offset - stop;
-        res = -1;
-      } else {
+
+      if (G_LIKELY (stop + *position >= segment->offset)) {
         *position = stop + *position - segment->offset;
         res = 1;
+      } else {
+        /* Requested position is still negative because offset is big,
+         * so negate the result */
+        *position = segment->offset - *position - stop;
+        res = -1;
       }
     }
   }
@@ -1075,13 +1100,9 @@ gst_segment_position_from_running_time_full (const GstSegment * segment,
  * Returns: the position in the segment for @running_time. This function returns
  * -1 when @running_time is -1 or when it is not inside @segment.
  *
- * Deprecated. Use gst_segment_position_from_running_time() instead.
+ * Deprecated: Use gst_segment_position_from_running_time() instead.
  */
 #ifndef GST_REMOVE_DEPRECATED
-#ifdef GST_DISABLE_DEPRECATED
-guint64 gst_segment_to_position (const GstSegment * segment, GstFormat format,
-    guint64 running_time);
-#endif
 guint64
 gst_segment_to_position (const GstSegment * segment, GstFormat format,
     guint64 running_time)

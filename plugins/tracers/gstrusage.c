@@ -19,7 +19,7 @@
  * Boston, MA 02110-1301, USA.
  */
 /**
- * SECTION:gstrusage
+ * SECTION:element-rusagetracer
  * @short_description: log resource usage stats
  *
  * A tracing module that take rusage() snapshots and logs them.
@@ -85,7 +85,8 @@ make_trace_values (GstClockTime window)
 static void
 free_trace_values (GstTraceValues * self)
 {
-  g_queue_free_full (&self->values, free_trace_value);
+  g_queue_foreach (&self->values, (GFunc) free_trace_value, NULL);
+  g_queue_clear (&self->values);
   g_slice_free (GstTraceValues, self);
 }
 
@@ -248,8 +249,8 @@ do_stats (GstTracer * obj, guint64 ts)
   G_UNLOCK (_proc);
   cur_cpuload = (guint) gst_util_uint64_scale (dtproc / num_cpus,
       G_GINT64_CONSTANT (1000), dts);
-  gst_tracer_record_log (tr_proc, ts, MIN (avg_cpuload, 1000),
-      MIN (cur_cpuload, 1000), tproc);
+  gst_tracer_record_log (tr_proc, (guint64) getpid (), ts,
+      MIN (avg_cpuload, 1000), MIN (cur_cpuload, 1000), tproc);
   /* *INDENT-ON* */
 }
 
@@ -315,7 +316,7 @@ gst_rusage_tracer_class_init (GstRUsageTracerClass * klass)
           NULL),
       NULL);
   tr_proc = gst_tracer_record_new ("proc-rusage.class",
-      "thread-id", GST_TYPE_STRUCTURE, gst_structure_new ("scope",
+      "process-id", GST_TYPE_STRUCTURE, gst_structure_new ("scope",
           "type", G_TYPE_GTYPE, G_TYPE_UINT64,
           "related-to", GST_TYPE_TRACER_VALUE_SCOPE, GST_TRACER_VALUE_SCOPE_PROCESS,
           NULL),
@@ -351,8 +352,21 @@ static void
 gst_rusage_tracer_init (GstRUsageTracer * self)
 {
   GstTracer *tracer = GST_TRACER (self);
+  gint i;
+  const gchar *hooks[] = { "pad-push-pre", "pad-push-post", "pad-push-list-pre",
+    "pad-push-list-post", "pad-pull-range-pre", "pad-pull-range-post",
+    "pad-push-event-pre", "pad-push-event-post", "pad-query-pre",
+    "pad-query-post", "element-post-message-pre", "element-post-message-post",
+    "element-query-pre", "element-query-post", "element-new", "element-add-pad",
+    "element-remove-pad", "element-change-state-pre",
+    "element-change-state-post", "bin-add-pre", "bin-add-post",
+    "bin-remove-pre", "bin-remove-post", "pad-link-pre", "pad-link-post",
+    "pad-unlink-pre", "pad-unlink-post"
+  };
 
-  gst_tracing_register_hook (tracer, NULL, G_CALLBACK (do_stats));
+  for (i = 0; i < G_N_ELEMENTS (hooks); i++) {
+    gst_tracing_register_hook (tracer, hooks[i], G_CALLBACK (do_stats));
+  }
 
   self->threads = g_hash_table_new_full (NULL, NULL, NULL, free_thread_stats);
   self->tvs_proc = make_trace_values (GST_SECOND);

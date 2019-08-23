@@ -58,7 +58,7 @@ extern const gchar *priv_gst_dump_dot_dir;      /* NULL *//* set from gst.c */
 
 #define PARAM_MAX_LENGTH 80
 
-const gchar spaces[] = {
+static const gchar spaces[] = {
   "                                "    /* 32 */
       "                                "        /* 64 */
       "                                "        /* 96 */
@@ -132,7 +132,59 @@ debug_dump_get_object_params (GObject * object,
       g_value_init (&value, property->value_type);
       g_object_get_property (G_OBJECT (object), property->name, &value);
       if (!(g_param_value_defaults (property, &value))) {
-        tmp = g_strdup_value_contents (&value);
+        /* we need to serialise enums and flags ourselves to make sure the
+         * enum/flag nick is used and not the enum/flag name, which would be the
+         * C header enum/flag for public enums/flags, but for element-specific
+         * enums/flags we abuse the name field for the property description,
+         * and we don't want to print that in the dot file. The nick will
+         * always work, and it's also shorter. */
+        if (G_VALUE_HOLDS_ENUM (&value)) {
+          GEnumClass *e_class = g_type_class_ref (G_VALUE_TYPE (&value));
+          gint idx, e_val;
+
+          tmp = NULL;
+          e_val = g_value_get_enum (&value);
+          for (idx = 0; idx < e_class->n_values; ++idx) {
+            if (e_class->values[idx].value == e_val) {
+              tmp = g_strdup (e_class->values[idx].value_nick);
+              break;
+            }
+          }
+          if (tmp == NULL) {
+            g_value_unset (&value);
+            continue;
+          }
+        } else if (G_VALUE_HOLDS_FLAGS (&value)) {
+          GFlagsClass *f_class = g_type_class_ref (G_VALUE_TYPE (&value));
+          GFlagsValue *vals = f_class->values;
+          GString *s = NULL;
+          guint idx, flags_left;
+
+          s = g_string_new (NULL);
+
+          /* we assume the values are sorted from lowest to highest value */
+          flags_left = g_value_get_flags (&value);
+          idx = f_class->n_values;
+          while (idx > 0) {
+            --idx;
+            if (vals[idx].value != 0
+                && (flags_left & vals[idx].value) == vals[idx].value) {
+              if (s->len > 0)
+                g_string_prepend_c (s, '+');
+              g_string_prepend (s, vals[idx].value_nick);
+              flags_left -= vals[idx].value;
+              if (flags_left == 0)
+                break;
+            }
+          }
+
+          if (s->len == 0)
+            g_string_assign (s, "(none)");
+
+          tmp = g_string_free (s, FALSE);
+        } else {
+          tmp = g_strdup_value_contents (&value);
+        }
         value_str = g_strescape (tmp, NULL);
         g_free (tmp);
 
@@ -201,7 +253,7 @@ debug_dump_pad (GstPad * pad, const gchar * color_name,
   param_name =
       debug_dump_get_object_params (G_OBJECT (pad), details, ignore_propnames);
   if (details & GST_DEBUG_GRAPH_SHOW_STATES) {
-    gchar pad_flags[4];
+    gchar pad_flags[5];
     const gchar *activation_mode = "-><";
     const gchar *task_mode = "";
     GstTask *task;
@@ -230,7 +282,8 @@ debug_dump_pad (GstPad * pad, const gchar * color_name,
         GST_OBJECT_FLAG_IS_SET (pad, GST_PAD_FLAG_FLUSHING) ? 'F' : 'f';
     pad_flags[2] =
         GST_OBJECT_FLAG_IS_SET (pad, GST_PAD_FLAG_BLOCKING) ? 'B' : 'b';
-    pad_flags[3] = '\0';
+    pad_flags[3] = GST_OBJECT_FLAG_IS_SET (pad, GST_PAD_FLAG_EOS) ? 'E' : '\0';
+    pad_flags[4] = '\0';
 
     g_string_append_printf (str,
         "%s  %s_%s [color=black, fillcolor=\"%s\", label=\"%s%s\\n[%c][%s]%s\", height=\"0.2\", style=\"%s\"];\n",
@@ -721,7 +774,7 @@ debug_dump_header (GstBin * bin, GstDebugGraphDetails details, GString * str)
       "    pos=\"0,0!\",\n"
       "    margin=\"0.05,0.05\",\n"
       "    style=\"filled\",\n"
-      "    label=\"Legend\\lElement-States: [~] void-pending, [0] null, [-] ready, [=] paused, [>] playing\\lPad-Activation: [-] none, [>] push, [<] pull\\lPad-Flags: [b]locked, [f]lushing, [b]locking; upper-case is set\\lPad-Task: [T] has started task, [t] has paused task\\l\",\n"
+      "    label=\"Legend\\lElement-States: [~] void-pending, [0] null, [-] ready, [=] paused, [>] playing\\lPad-Activation: [-] none, [>] push, [<] pull\\lPad-Flags: [b]locked, [f]lushing, [b]locking, [E]OS; upper-case is set\\lPad-Task: [T] has started task, [t] has paused task\\l\",\n"
       "  ];"
       "\n", G_OBJECT_TYPE_NAME (bin), GST_OBJECT_NAME (bin),
       (state_name ? state_name : ""), (param_name ? param_name : "")
@@ -739,7 +792,7 @@ debug_dump_footer (GString * str)
   g_string_append_printf (str, "}\n");
 }
 
-/*
+/**
  * gst_debug_bin_to_dot_data:
  * @bin: the top-level pipeline that should be analyzed
  *
@@ -766,10 +819,10 @@ gst_debug_bin_to_dot_data (GstBin * bin, GstDebugGraphDetails details)
   return g_string_free (str, FALSE);
 }
 
-/*
+/**
  * gst_debug_bin_to_dot_file:
  * @bin: the top-level pipeline that should be analyzed
- * @file_name: output base filename (e.g. "myplayer")
+ * @file_name: (type filename): output base filename (e.g. "myplayer")
  *
  * To aid debugging applications one can use this method to write out the whole
  * network of gstreamer elements that form the pipeline into an dot file.
@@ -816,10 +869,10 @@ gst_debug_bin_to_dot_file (GstBin * bin, GstDebugGraphDetails details,
   g_free (full_file_name);
 }
 
-/*
+/**
  * gst_debug_bin_to_dot_file_with_ts:
  * @bin: the top-level pipeline that should be analyzed
- * @file_name: output base filename (e.g. "myplayer")
+ * @file_name: (type filename): output base filename (e.g. "myplayer")
  *
  * This works like gst_debug_bin_to_dot_file(), but adds the current timestamp
  * to the filename, so that it can be used to take multiple snapshots.

@@ -14,8 +14,10 @@ gstclock
 gstcontroller
 gstcontext
 gstcpp
+gstcustombufferpool
 gstdata
 gstdatetime
+gstdeinit
 gstdevice
 gstelement
 gstelementfactory
@@ -35,9 +37,11 @@ gstplugin
 gstpoll
 gstpreset
 gstprintf
+gstpromise
 gstprotection
 gstregistry
 gstsegment
+gststream
 gststructure
 gstsystemclock
 gsttag

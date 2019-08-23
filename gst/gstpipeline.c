@@ -22,6 +22,7 @@
 
 /**
  * SECTION:gstpipeline
+ * @title: GstPipeline
  * @short_description: Top-level bin with clocking and bus management
                        functionality.
  * @see_also: #GstElement, #GstBin, #GstClock, #GstBus
@@ -243,7 +244,7 @@ gst_pipeline_dispose (GObject * object)
   GstPipeline *pipeline = GST_PIPELINE (object);
   GstClock **clock_p = &pipeline->fixed_clock;
 
-  GST_CAT_DEBUG_OBJECT (GST_CAT_REFCOUNTING, pipeline, "dispose");
+  GST_CAT_DEBUG_OBJECT (GST_CAT_REFCOUNTING, pipeline, "%p dispose", pipeline);
 
   /* clear and unref any fixed clock */
   gst_object_replace ((GstObject **) clock_p, NULL);
@@ -380,6 +381,14 @@ gst_pipeline_change_state (GstElement * element, GstStateChange transition)
   GstClock *clock;
 
   switch (transition) {
+    case GST_STATE_CHANGE_NULL_TO_NULL:
+      break;
+    case GST_STATE_CHANGE_READY_TO_READY:
+      break;
+    case GST_STATE_CHANGE_PAUSED_TO_PAUSED:
+      break;
+    case GST_STATE_CHANGE_PLAYING_TO_PLAYING:
+      break;
     case GST_STATE_CHANGE_NULL_TO_READY:
       GST_OBJECT_LOCK (element);
       if (element->bus)
@@ -499,6 +508,14 @@ gst_pipeline_change_state (GstElement * element, GstStateChange transition)
   result = GST_ELEMENT_CLASS (parent_class)->change_state (element, transition);
 
   switch (transition) {
+    case GST_STATE_CHANGE_NULL_TO_NULL:
+      break;
+    case GST_STATE_CHANGE_READY_TO_READY:
+      break;
+    case GST_STATE_CHANGE_PAUSED_TO_PAUSED:
+      break;
+    case GST_STATE_CHANGE_PLAYING_TO_PLAYING:
+      break;
     case GST_STATE_CHANGE_NULL_TO_READY:
       break;
     case GST_STATE_CHANGE_READY_TO_PAUSED:

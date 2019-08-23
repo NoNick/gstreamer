@@ -18,7 +18,7 @@
 <SECTION>
 <FILE>gstargbcontrolbinding</FILE>
 <TITLE>GstARGBControlBinding</TITLE>
-<INCLUDE>libs/controller/gstargbcontrolbinding.h</INCLUDE>
+<INCLUDE>libs/controller/controller.h</INCLUDE>
 gst_argb_control_binding_new
 <SUBSECTION Standard>
 GstARGBControlBinding
@@ -35,7 +35,7 @@ gst_argb_control_binding_get_type
 <SECTION>
 <FILE>gstdirectcontrolbinding</FILE>
 <TITLE>GstDirectControlBinding</TITLE>
-<INCLUDE>libs/controller/gstdirectcontrolbinding.h</INCLUDE>
+<INCLUDE>libs/controller/controller.h</INCLUDE>
 gst_direct_control_binding_new
 gst_direct_control_binding_new_absolute
 <SUBSECTION Standard>
@@ -52,12 +52,29 @@ GST_TYPE_DIRECT_CONTROL_BINDING
 gst_direct_control_binding_get_type
 </SECTION>
 
+<SECTION>
+<FILE>gstproxycontrolbinding</FILE>
+<TITLE>GstProxyControlBinding</TITLE>
+<INCLUDE>libs/controller/controller.h</INCLUDE>
+gst_proxy_control_binding_new
+<SUBSECTION Standard>
+GstProxyControlBinding
+GstProxyControlBindingClass
+GST_PROXY_CONTROL_BINDING
+GST_PROXY_CONTROL_BINDING_CLASS
+GST_PROXY_CONTROL_BINDING_GET_CLASS
+GST_IS_PROXY_CONTROL_BINDING
+GST_IS_PROXY_CONTROL_BINDING_CLASS
+GST_TYPE_PROXY_CONTROL_BINDING
+gst_proxy_control_binding_get_type
+</SECTION>
+
 # control source classes
 
 <SECTION>
 <FILE>gsttimedvaluecontrolsource</FILE>
 <TITLE>GstTimedValueControlSource</TITLE>
-<INCLUDE>libs/controller/gsttimedvaluecontrolsource.h</INCLUDE>
+<INCLUDE>libs/controller/controller.h</INCLUDE>
 GstTimedValueControlSource
 GstControlPoint
 gst_timed_value_control_source_find_control_point_iter
@@ -87,7 +104,7 @@ gst_control_point_get_type
 <SECTION>
 <FILE>gstinterpolationcontrolsource</FILE>
 <TITLE>GstInterpolationControlSource</TITLE>
-<INCLUDE>libs/controller/gstinterpolationcontrolsource.h</INCLUDE>
+<INCLUDE>libs/controller/controller.h</INCLUDE>
 GstInterpolationControlSource
 GstInterpolationMode
 gst_interpolation_control_source_new
@@ -131,7 +148,7 @@ gst_lfo_waveform_get_type
 <SECTION>
 <FILE>gsttriggercontrolsource</FILE>
 <TITLE>GstTriggerControlSource</TITLE>
-<INCLUDE>libs/controller/gsttriggercontrolsource.h</INCLUDE>
+<INCLUDE>libs/controller/controller.h</INCLUDE>
 GstTriggerControlSource
 gst_trigger_control_source_new
 GST_TYPE_TRIGGER_WAVEFORM
@@ -153,7 +170,7 @@ gst_trigger_control_source_get_type
 <SECTION>
 <FILE>gstadapter</FILE>
 <TITLE>GstAdapter</TITLE>
-<INCLUDE>gst/base/gstadapter.h</INCLUDE>
+<INCLUDE>gst/base/adapter.h</INCLUDE>
 GstAdapter
 gst_adapter_new
 gst_adapter_clear
@@ -178,6 +195,11 @@ gst_adapter_prev_pts
 gst_adapter_prev_dts
 gst_adapter_prev_pts_at_offset
 gst_adapter_prev_dts_at_offset
+gst_adapter_prev_offset
+gst_adapter_pts_at_discont
+gst_adapter_dts_at_discont
+gst_adapter_offset_at_discont
+gst_adapter_distance_from_discont
 gst_adapter_masked_scan_uint32
 gst_adapter_masked_scan_uint32_peek
 <SUBSECTION Standard>
@@ -194,6 +216,47 @@ gst_adapter_get_type
 </SECTION>
 
 <SECTION>
+<FILE>gstaggregator</FILE>
+<TITLE>GstAggregator</TITLE>
+<INCLUDE>gst/base/base.h</INCLUDE>
+GstAggregator
+GstAggregatorClass
+gst_aggregator_finish_buffer
+gst_aggregator_set_src_caps
+gst_aggregator_get_latency
+gst_aggregator_get_buffer_pool
+gst_aggregator_get_allocator
+<SUBSECTION Standard>
+GST_IS_AGGREGATOR
+GST_IS_AGGREGATOR_CLASS
+GST_TYPE_AGGREGATOR
+GST_AGGREGATOR
+GST_AGGREGATOR_CLASS
+GST_AGGREGATOR_GET_CLASS
+gst_aggregator_get_type
+</SECTION>
+
+<SECTION>
+<FILE>gstaggregatorpad</FILE>
+<TITLE>GstAggregatorPad</TITLE>
+GstAggregatorPad
+GstAggregatorPadClass
+gst_aggregator_pad_pop_buffer
+gst_aggregator_pad_peek_buffer
+gst_aggregator_pad_drop_buffer
+gst_aggregator_pad_is_eos
+gst_aggregator_pad_has_buffer
+<SUBSECTION Standard>
+GST_IS_AGGREGATOR_PAD
+GST_IS_AGGREGATOR_PAD_CLASS
+GST_TYPE_AGGREGATOR_PAD
+GST_AGGREGATOR_PAD
+GST_AGGREGATOR_PAD_CLASS
+GST_AGGREGATOR_PAD_GET_CLASS
+gst_aggregator_pad_get_type
+</SECTION>
+
+<SECTION>
 <FILE>gstbaseparse</FILE>
 <TITLE>GstBaseParse</TITLE>
 <INCLUDE>gst/base/gstbaseparse.h</INCLUDE>
@@ -207,6 +270,7 @@ gst_base_parse_set_min_frame_size
 gst_base_parse_set_passthrough
 gst_base_parse_set_syncable
 gst_base_parse_set_has_timing_info
+gst_base_parse_drain
 gst_base_parse_set_frame_rate
 gst_base_parse_set_latency
 gst_base_parse_set_infer_ts
@@ -272,6 +336,7 @@ gst_base_src_get_allocator
 gst_base_src_get_buffer_pool
 gst_base_src_is_async
 gst_base_src_set_async
+gst_base_src_submit_buffer_list
 
 GST_BASE_SRC_PAD
 GST_BASE_SRC_IS_STARTED
@@ -775,6 +840,8 @@ gst_collect_pads_get_type
 GstFlowCombiner
 gst_flow_combiner_new
 gst_flow_combiner_free
+gst_flow_combiner_ref
+gst_flow_combiner_unref
 gst_flow_combiner_update_flow
 gst_flow_combiner_add_pad
 gst_flow_combiner_remove_pad
@@ -862,6 +929,8 @@ gst_queue_array_get_length
 gst_queue_array_pop_head
 gst_queue_array_peek_head
 gst_queue_array_push_tail
+gst_queue_array_pop_tail
+gst_queue_array_peek_tail
 gst_queue_array_is_empty
 gst_queue_array_drop_element
 gst_queue_array_find
@@ -869,6 +938,8 @@ gst_queue_array_new_for_struct
 gst_queue_array_push_tail_struct
 gst_queue_array_peek_head_struct
 gst_queue_array_pop_head_struct
+gst_queue_array_peek_tail_struct
+gst_queue_array_pop_tail_struct
 gst_queue_array_drop_struct
 </SECTION>
 
@@ -1257,6 +1328,9 @@ gst_harness_buffers_received
 gst_harness_buffers_in_queue
 gst_harness_set_drop_buffers
 gst_harness_dump_to_file
+gst_harness_take_all_data
+gst_harness_take_all_data_as_buffer
+gst_harness_take_all_data_as_bytes
 gst_harness_get_last_pushed_timestamp
 
 gst_harness_push_event

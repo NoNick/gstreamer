@@ -20,6 +20,7 @@
  */
 /**
  * SECTION:element-concat
+ * @title: concat
  * @see_also: #GstFunnel
  *
  * Concatenates streams together to one continous stream.
@@ -37,12 +38,11 @@
  * another downstream element like a streamsynchronizer adjusts the base
  * values on its own). The adjust-base property can be used for this purpose.
  *
- * <refsect2>
- * <title>Example launch line</title>
+ * ## Example launch line
  * |[
  * gst-launch-1.0 concat name=c ! xvimagesink  videotestsrc num-buffers=100 ! c.   videotestsrc num-buffers=100 pattern=ball ! c.
  * ]| Plays two video streams one after another.
- * </refsect2>
+ *
  */
 
 #ifdef HAVE_CONFIG_H
@@ -395,6 +395,12 @@ gst_concat_pad_wait (GstConcatPad * spad, GstConcat * self)
 
   while (spad != GST_CONCAT_PAD_CAST (self->current_sinkpad)) {
     GST_TRACE_OBJECT (spad, "Not the current sinkpad - waiting");
+    if (self->current_sinkpad == NULL && g_list_length (self->sinkpads) == 1) {
+      GST_LOG_OBJECT (spad, "Sole pad waiting, switching");
+      /* If we are the only sinkpad, take active pad ownership */
+      self->current_sinkpad = gst_object_ref (self->sinkpads->data);
+      break;
+    }
     g_cond_wait (&self->cond, &self->lock);
     if (spad->flushing) {
       g_mutex_unlock (&self->lock);
@@ -563,6 +569,7 @@ gst_concat_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
         ret = FALSE;
       } else {
         GstSegment segment = spad->segment;
+        GstEvent *topush;
 
         if (adjust_base) {
           /* We know no duration */
@@ -578,8 +585,10 @@ gst_concat_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
               segment.stop += self->current_start_offset;
           }
         }
+        topush = gst_event_new_segment (&segment);
+        gst_event_set_seqnum (topush, gst_event_get_seqnum (event));
 
-        gst_pad_push_event (self->srcpad, gst_event_new_segment (&segment));
+        gst_pad_push_event (self->srcpad, topush);
       }
       break;
     }
@@ -614,6 +623,8 @@ gst_concat_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
       spad->flushing = TRUE;
       g_cond_broadcast (&self->cond);
       forward = (self->current_sinkpad == GST_PAD_CAST (spad));
+      if (!forward && g_list_length (self->sinkpads) == 1)
+        forward = TRUE;
       g_mutex_unlock (&self->lock);
 
       if (forward)
@@ -630,6 +641,8 @@ gst_concat_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
 
       g_mutex_lock (&self->lock);
       forward = (self->current_sinkpad == GST_PAD_CAST (spad));
+      if (!forward && g_list_length (self->sinkpads) == 1)
+        forward = TRUE;
       g_mutex_unlock (&self->lock);
 
       if (forward) {
@@ -700,6 +713,10 @@ gst_concat_src_event (GstPad * pad, GstObject * parent, GstEvent * event)
       g_mutex_lock (&self->lock);
       if ((sinkpad = self->current_sinkpad))
         gst_object_ref (sinkpad);
+      /* If no current active sinkpad but only one sinkpad, try reactivating that pad */
+      if (sinkpad == NULL && g_list_length (self->sinkpads) == 1) {
+        sinkpad = gst_object_ref (self->sinkpads->data);
+      }
       g_mutex_unlock (&self->lock);
       if (sinkpad) {
         ret = gst_pad_push_event (sinkpad, event);
@@ -715,16 +732,28 @@ gst_concat_src_event (GstPad * pad, GstObject * parent, GstEvent * event)
       GstClockTimeDiff diff;
       GstClockTime timestamp;
       gdouble proportion;
+      GstPad *sinkpad = NULL;
 
-      gst_event_parse_qos (event, &type, &proportion, &diff, &timestamp);
-      gst_event_unref (event);
+      g_mutex_lock (&self->lock);
+      if ((sinkpad = self->current_sinkpad))
+        gst_object_ref (sinkpad);
+      g_mutex_unlock (&self->lock);
 
-      if (timestamp != GST_CLOCK_TIME_NONE
-          && timestamp > self->current_start_offset) {
-        timestamp -= self->current_start_offset;
-        event = gst_event_new_qos (type, proportion, diff, timestamp);
-        ret = gst_pad_push_event (self->current_sinkpad, event);
+      if (sinkpad) {
+        gst_event_parse_qos (event, &type, &proportion, &diff, &timestamp);
+        gst_event_unref (event);
+
+        if (timestamp != GST_CLOCK_TIME_NONE
+            && timestamp > self->current_start_offset) {
+          timestamp -= self->current_start_offset;
+          event = gst_event_new_qos (type, proportion, diff, timestamp);
+          ret = gst_pad_push_event (self->current_sinkpad, event);
+        } else {
+          ret = FALSE;
+        }
+        gst_object_unref (sinkpad);
       } else {
+        gst_event_unref (event);
         ret = FALSE;
       }
       break;
@@ -800,10 +829,10 @@ gst_concat_change_state (GstElement * element, GstStateChange transition)
       self->current_start_offset = 0;
       self->last_stop = GST_CLOCK_TIME_NONE;
 
-      do {
-        res = gst_iterator_foreach (iter, reset_pad, NULL);
-      } while (res == GST_ITERATOR_RESYNC);
-
+      while ((res =
+              gst_iterator_foreach (iter, reset_pad,
+                  NULL)) == GST_ITERATOR_RESYNC)
+        gst_iterator_resync (iter);
       gst_iterator_free (iter);
 
       if (res == GST_ITERATOR_ERROR)
@@ -815,10 +844,10 @@ gst_concat_change_state (GstElement * element, GstStateChange transition)
       GstIteratorResult res;
 
       g_mutex_lock (&self->lock);
-      do {
-        res = gst_iterator_foreach (iter, unblock_pad, NULL);
-      } while (res == GST_ITERATOR_RESYNC);
-
+      while ((res =
+              gst_iterator_foreach (iter, unblock_pad,
+                  NULL)) == GST_ITERATOR_RESYNC)
+        gst_iterator_resync (iter);
       gst_iterator_free (iter);
       g_cond_broadcast (&self->cond);
       g_mutex_unlock (&self->lock);

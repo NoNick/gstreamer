@@ -2,6 +2,8 @@
  * Copyright (C) 1999,2000 Erik Walthinsen <omega@cse.ogi.edu>
  *                    2000 Wim Taymans <wtay@chello.be>
  *                    2002 Thomas Vander Stichele <thomas@apestaart.org>
+ *                    2004 Wim Taymans <wim@fluendo.com>
+ *                    2015 Jan Schmidt <jan@centricular.com>
  *
  * gstutils.c: Utility functions
  *
@@ -23,9 +25,14 @@
 
 /**
  * SECTION:gstutils
+ * @title: GstUtils
  * @short_description: Various utility functions
  *
  */
+
+/* FIXME 2.0: suppress warnings for deprecated API such as GValueArray
+ * with newer GLib versions (>= 2.31.0) */
+#define GLIB_DISABLE_DEPRECATION_WARNINGS
 
 #include "gst_private.h"
 #include <stdio.h>
@@ -43,7 +50,7 @@
 
 /**
  * gst_util_dump_mem:
- * @mem: a pointer to the memory to dump
+ * @mem: (array length=size): a pointer to the memory to dump
  * @size: the size of the memory block to dump
  *
  * Dumps the memory block into a hex representation. Useful for debugging.
@@ -79,6 +86,24 @@ gst_util_dump_mem (const guchar * mem, guint size)
   g_string_free (chars, TRUE);
 }
 
+/**
+ * gst_util_dump_buffer:
+ * @buf: a #GstBuffer whose memory to dump
+ *
+ * Dumps the buffer memory into a hex representation. Useful for debugging.
+ *
+ * Since: 1.14
+ */
+void
+gst_util_dump_buffer (GstBuffer * buf)
+{
+  GstMapInfo map;
+
+  if (gst_buffer_map (buf, &map, GST_MAP_READ)) {
+    gst_util_dump_mem (map.data, map.size);
+    gst_buffer_unmap (buf, &map);
+  }
+}
 
 /**
  * gst_util_set_value_from_string:
@@ -162,6 +187,75 @@ done:
 
   g_object_set_property (object, pspec->name, &v);
   g_value_unset (&v);
+}
+
+/**
+ * gst_util_set_object_array:
+ * @object: the object to set the array to
+ * @name: the name of the property to set
+ * @array: a #GValueArray containing the values
+ *
+ * Transfer a #GValueArray to %GST_TYPE_ARRAY and set this value on the
+ * specified property name. This allow language bindings to set GST_TYPE_ARRAY
+ * properties which are otherwise not an accessible type.
+ *
+ * Since: 1.12
+ */
+gboolean
+gst_util_set_object_array (GObject * object, const gchar * name,
+    const GValueArray * array)
+{
+  GValue v1 = G_VALUE_INIT, v2 = G_VALUE_INIT;
+  gboolean ret = FALSE;
+
+  g_value_init (&v1, G_TYPE_VALUE_ARRAY);
+  g_value_init (&v2, GST_TYPE_ARRAY);
+
+  g_value_set_static_boxed (&v1, array);
+
+  if (g_value_transform (&v1, &v2)) {
+    g_object_set_property (object, name, &v2);
+    ret = TRUE;
+  }
+
+  g_value_unset (&v1);
+  g_value_unset (&v2);
+
+  return ret;
+}
+
+/**
+ * gst_util_get_object_array:
+ * @object: the object to set the array to
+ * @name: the name of the property to set
+ * @array: (out): a return #GValueArray
+ *
+ * Get a property of type %GST_TYPE_ARRAY and transform it into a
+ * #GValueArray. This allow language bindings to get GST_TYPE_ARRAY
+ * properties which are otherwise not an accessible type.
+ *
+ * Since: 1.12
+ */
+gboolean
+gst_util_get_object_array (GObject * object, const gchar * name,
+    GValueArray ** array)
+{
+  GValue v1 = G_VALUE_INIT, v2 = G_VALUE_INIT;
+  gboolean ret = FALSE;
+
+  g_value_init (&v1, G_TYPE_VALUE_ARRAY);
+  g_value_init (&v2, GST_TYPE_ARRAY);
+
+  g_object_get_property (object, name, &v2);
+
+  if (g_value_transform (&v2, &v1)) {
+    *array = g_value_get_boxed (&v1);
+    ret = TRUE;
+  }
+
+  g_value_unset (&v2);
+
+  return ret;
 }
 
 /* work around error C2520: conversion from unsigned __int64 to double
@@ -694,15 +788,23 @@ gst_util_uint64_scale_int_ceil (guint64 val, gint num, gint denom)
  * on a segment-done message to be the same as that of the last seek event, to
  * indicate that event and the message correspond to the same segment.
  *
+ * This function never returns %GST_SEQNUM_INVALID (which is 0).
+ *
  * Returns: A constantly incrementing 32-bit unsigned integer, which might
- * overflow back to 0 at some point. Use gst_util_seqnum_compare() to make sure
+ * overflow at some point. Use gst_util_seqnum_compare() to make sure
  * you handle wraparound correctly.
  */
 guint32
 gst_util_seqnum_next (void)
 {
-  static gint counter = 0;
-  return g_atomic_int_add (&counter, 1);
+  static gint counter = 1;
+  gint ret = g_atomic_int_add (&counter, 1);
+
+  /* Make sure we don't return 0 */
+  if (G_UNLIKELY (ret == GST_SEQNUM_INVALID))
+    ret = g_atomic_int_add (&counter, 1);
+
+  return ret;
 }
 
 /**
@@ -909,10 +1011,11 @@ gst_element_request_compatible_pad (GstElement * element,
   templ_new = gst_element_get_compatible_pad_template (element, templ);
   if (templ_new)
     pad = gst_element_get_pad_from_template (element, templ_new);
-
-  /* This can happen for non-request pads. No need to unref. */
-  if (pad && GST_PAD_PEER (pad))
+  /* This can happen for non-request pads. */
+  if (pad && GST_PAD_PEER (pad)) {
+    gst_object_unref (pad);
     pad = NULL;
+  }
 
   return pad;
 }
@@ -1180,6 +1283,46 @@ gst_element_state_change_return_get_name (GstStateChangeReturn state_ret)
   }
 }
 
+/**
+ * gst_state_change_get_name:
+ * @transition: a #GstStateChange to get the name of.
+ *
+ * Gets a string representing the given state transition.
+ *
+ * Returns: (transfer none): a string with the name of the state
+ *    result.
+ *
+ * Since: 1.14
+ */
+const gchar *
+gst_state_change_get_name (GstStateChange transition)
+{
+  switch (transition) {
+    case GST_STATE_CHANGE_NULL_TO_READY:
+      return "NULL->READY";
+    case GST_STATE_CHANGE_READY_TO_PAUSED:
+      return "READY->PAUSED";
+    case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
+      return "PAUSED->PLAYING";
+    case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
+      return "PLAYING->PAUSED";
+    case GST_STATE_CHANGE_PAUSED_TO_READY:
+      return "PAUSED->READY";
+    case GST_STATE_CHANGE_READY_TO_NULL:
+      return "READY->NULL";
+    case GST_STATE_CHANGE_NULL_TO_NULL:
+      return "NULL->NULL";
+    case GST_STATE_CHANGE_READY_TO_READY:
+      return "READY->READY";
+    case GST_STATE_CHANGE_PAUSED_TO_PAUSED:
+      return "PAUSED->PAUSED";
+    case GST_STATE_CHANGE_PLAYING_TO_PLAYING:
+      return "PLAYING->PLAYING";
+  }
+
+  return "Unknown state return";
+}
+
 
 static gboolean
 gst_element_factory_can_accept_all_caps_in_direction (GstElementFactory *
@@ -1389,20 +1532,19 @@ ghost_up (GstElement * e, GstPad * pad)
   gpad = gst_ghost_pad_new (name, pad);
   g_free (name);
 
-  GST_STATE_LOCK (e);
-  gst_element_get_state (e, &current, &next, 0);
+  GST_STATE_LOCK (parent);
+  gst_element_get_state (GST_ELEMENT (parent), &current, &next, 0);
 
-  if (current > GST_STATE_READY || next == GST_STATE_PAUSED)
+  if (current > GST_STATE_READY || next >= GST_STATE_PAUSED)
     gst_pad_set_active (gpad, TRUE);
 
   if (!gst_element_add_pad ((GstElement *) parent, gpad)) {
     g_warning ("Pad named %s already exists in element %s\n",
         GST_OBJECT_NAME (gpad), GST_OBJECT_NAME (parent));
-    gst_object_unref ((GstObject *) gpad);
-    GST_STATE_UNLOCK (e);
+    GST_STATE_UNLOCK (parent);
     return NULL;
   }
-  GST_STATE_UNLOCK (e);
+  GST_STATE_UNLOCK (parent);
 
   return gpad;
 }
@@ -1518,6 +1660,65 @@ pad_link_maybe_ghosting (GstPad * src, GstPad * sink, GstPadLinkCheck flags)
   g_slist_free (pads_created);
 
   return ret;
+}
+
+/**
+ * gst_pad_link_maybe_ghosting_full:
+ * @src: a #GstPad
+ * @sink: a #GstPad
+ * @flags: some #GstPadLinkCheck flags
+ *
+ * Links @src to @sink, creating any #GstGhostPad's in between as necessary.
+ *
+ * This is a convenience function to save having to create and add intermediate
+ * #GstGhostPad's as required for linking across #GstBin boundaries.
+ *
+ * If @src or @sink pads don't have parent elements or do not share a common
+ * ancestor, the link will fail.
+ *
+ * Calling gst_pad_link_maybe_ghosting_full() with
+ * @flags == %GST_PAD_LINK_CHECK_DEFAULT is the recommended way of linking
+ * pads with safety checks applied.
+ *
+ * Returns: whether the link succeeded.
+ *
+ * Since: 1.10
+ */
+gboolean
+gst_pad_link_maybe_ghosting_full (GstPad * src, GstPad * sink,
+    GstPadLinkCheck flags)
+{
+  g_return_val_if_fail (GST_IS_PAD (src), FALSE);
+  g_return_val_if_fail (GST_IS_PAD (sink), FALSE);
+
+  return pad_link_maybe_ghosting (src, sink, flags);
+}
+
+/**
+ * gst_pad_link_maybe_ghosting:
+ * @src: a #GstPad
+ * @sink: a #GstPad
+ *
+ * Links @src to @sink, creating any #GstGhostPad's in between as necessary.
+ *
+ * This is a convenience function to save having to create and add intermediate
+ * #GstGhostPad's as required for linking across #GstBin boundaries.
+ *
+ * If @src or @sink pads don't have parent elements or do not share a common
+ * ancestor, the link will fail.
+ *
+ * Returns: whether the link succeeded.
+ *
+ * Since: 1.10
+ */
+gboolean
+gst_pad_link_maybe_ghosting (GstPad * src, GstPad * sink)
+{
+  g_return_val_if_fail (GST_IS_PAD (src), FALSE);
+  g_return_val_if_fail (GST_IS_PAD (sink), FALSE);
+
+  return gst_pad_link_maybe_ghosting_full (src, sink,
+      GST_PAD_LINK_CHECK_DEFAULT);
 }
 
 static void
@@ -1923,7 +2124,6 @@ gst_element_link_pads_filtered (GstElement * src, const gchar * srcpadname,
 
     if (!gst_bin_add (GST_BIN (parent), capsfilter)) {
       GST_ERROR ("Could not add capsfilter");
-      gst_object_unref (capsfilter);
       gst_object_unref (parent);
       return FALSE;
     }
@@ -2228,6 +2428,9 @@ gst_element_query_position (GstElement * element, GstFormat format,
   GstQuery *query;
   gboolean ret;
 
+  if (cur != NULL)
+    *cur = GST_CLOCK_TIME_NONE;
+
   g_return_val_if_fail (GST_IS_ELEMENT (element), FALSE);
   g_return_val_if_fail (format != GST_FORMAT_UNDEFINED, FALSE);
 
@@ -2265,6 +2468,9 @@ gst_element_query_duration (GstElement * element, GstFormat format,
 {
   GstQuery *query;
   gboolean ret;
+
+  if (duration != NULL)
+    *duration = GST_CLOCK_TIME_NONE;
 
   g_return_val_if_fail (GST_IS_ELEMENT (element), FALSE);
   g_return_val_if_fail (format != GST_FORMAT_UNDEFINED, FALSE);
@@ -2356,7 +2562,7 @@ gst_element_seek_simple (GstElement * element, GstFormat format,
   g_return_val_if_fail (seek_pos >= 0, FALSE);
 
   return gst_element_seek (element, 1.0, format, seek_flags,
-      GST_SEEK_TYPE_SET, seek_pos, GST_SEEK_TYPE_NONE, 0);
+      GST_SEEK_TYPE_SET, seek_pos, GST_SEEK_TYPE_SET, GST_CLOCK_TIME_NONE);
 }
 
 /**
@@ -2431,10 +2637,10 @@ gst_object_default_error (GstObject * source, const GError * error,
 }
 
 /**
- * gst_bin_add_many:
+ * gst_bin_add_many: (skip)
  * @bin: a #GstBin
- * @element_1: (transfer full): the #GstElement element to add to the bin
- * @...: (transfer full): additional elements to add to the bin
+ * @element_1: (transfer floating): the #GstElement element to add to the bin
+ * @...: additional elements to add to the bin
  *
  * Adds a %NULL-terminated list of elements to a bin.  This function is
  * equivalent to calling gst_bin_add() for each member of the list. The return
@@ -2460,7 +2666,7 @@ gst_bin_add_many (GstBin * bin, GstElement * element_1, ...)
 }
 
 /**
- * gst_bin_remove_many:
+ * gst_bin_remove_many: (skip)
  * @bin: a #GstBin
  * @element_1: (transfer none): the first #GstElement to remove from the bin
  * @...: (transfer none): %NULL-terminated list of elements to remove from the bin
@@ -2636,6 +2842,9 @@ gst_pad_query_position (GstPad * pad, GstFormat format, gint64 * cur)
   GstQuery *query;
   gboolean ret;
 
+  if (cur != NULL)
+    *cur = GST_CLOCK_TIME_NONE;
+
   g_return_val_if_fail (GST_IS_PAD (pad), FALSE);
   g_return_val_if_fail (format != GST_FORMAT_UNDEFINED, FALSE);
 
@@ -2665,6 +2874,9 @@ gst_pad_peer_query_position (GstPad * pad, GstFormat format, gint64 * cur)
   GstQuery *query;
   gboolean ret = FALSE;
 
+  if (cur != NULL)
+    *cur = GST_CLOCK_TIME_NONE;
+
   g_return_val_if_fail (GST_IS_PAD (pad), FALSE);
   g_return_val_if_fail (format != GST_FORMAT_UNDEFINED, FALSE);
 
@@ -2692,6 +2904,9 @@ gst_pad_query_duration (GstPad * pad, GstFormat format, gint64 * duration)
 {
   GstQuery *query;
   gboolean ret;
+
+  if (duration != NULL)
+    *duration = GST_CLOCK_TIME_NONE;
 
   g_return_val_if_fail (GST_IS_PAD (pad), FALSE);
   g_return_val_if_fail (format != GST_FORMAT_UNDEFINED, FALSE);
@@ -2721,6 +2936,9 @@ gst_pad_peer_query_duration (GstPad * pad, GstFormat format, gint64 * duration)
 {
   GstQuery *query;
   gboolean ret = FALSE;
+
+  if (duration != NULL)
+    *duration = GST_CLOCK_TIME_NONE;
 
   g_return_val_if_fail (GST_IS_PAD (pad), FALSE);
   g_return_val_if_fail (GST_PAD_IS_SINK (pad), FALSE);
@@ -3175,7 +3393,7 @@ gst_parse_bin_from_description (const gchar * bin_description,
  * and want them all ghosted, you will have to create the ghost pads
  * yourself).
  *
- * Returns: (transfer floating) (type Gst.Element): a newly-created
+ * Returns: (transfer floating) (type Gst.Element) (nullable): a newly-created
  *   element, which is guaranteed to be a bin unless
  *   GST_FLAG_NO_SINGLE_ELEMENT_BINS was passed, or %NULL if an error
  *   occurred.
@@ -3261,10 +3479,7 @@ gst_util_get_timestamp (void)
   clock_gettime (CLOCK_MONOTONIC, &now);
   return GST_TIMESPEC_TO_TIME (now);
 #else
-  GTimeVal now;
-
-  g_get_current_time (&now);
-  return GST_TIMEVAL_TO_TIME (now);
+  return g_get_monotonic_time () * 1000;
 #endif
 }
 
@@ -3935,6 +4150,41 @@ gst_pad_get_stream_id (GstPad * pad)
 }
 
 /**
+ * gst_pad_get_stream:
+ * @pad: A source #GstPad
+ *
+ * Returns the current #GstStream for the @pad, or %NULL if none has been
+ * set yet, i.e. the pad has not received a stream-start event yet.
+ *
+ * This is a convenience wrapper around gst_pad_get_sticky_event() and
+ * gst_event_parse_stream().
+ *
+ * Returns: (nullable) (transfer full): the current #GstStream for @pad, or %NULL.
+ *     unref the returned stream when no longer needed.
+ *
+ * Since: 1.10
+ */
+GstStream *
+gst_pad_get_stream (GstPad * pad)
+{
+  GstStream *stream = NULL;
+  GstEvent *event;
+
+  g_return_val_if_fail (GST_IS_PAD (pad), NULL);
+
+  event = gst_pad_get_sticky_event (pad, GST_EVENT_STREAM_START, 0);
+  if (event != NULL) {
+    gst_event_parse_stream (event, &stream);
+    gst_event_unref (event);
+    GST_LOG_OBJECT (pad, "pad has stream object %p", stream);
+  } else {
+    GST_DEBUG_OBJECT (pad, "pad has not received a stream-start event yet");
+  }
+
+  return stream;
+}
+
+/**
  * gst_util_group_id_next:
  *
  * Return a constantly incrementing group id.
@@ -3942,12 +4192,283 @@ gst_pad_get_stream_id (GstPad * pad)
  * This function is used to generate a new group-id for the
  * stream-start event.
  *
+ * This function never returns %GST_GROUP_ID_INVALID (which is 0)
+ *
  * Returns: A constantly incrementing unsigned integer, which might
  * overflow back to 0 at some point.
  */
 guint
 gst_util_group_id_next (void)
 {
-  static gint counter = 0;
-  return g_atomic_int_add (&counter, 1);
+  static gint counter = 1;
+  gint ret = g_atomic_int_add (&counter, 1);
+
+  /* Make sure we don't return GST_GROUP_ID_INVALID */
+  if (G_UNLIKELY (ret == GST_GROUP_ID_INVALID))
+    ret = g_atomic_int_add (&counter, 1);
+
+  return ret;
+}
+
+/* Compute log2 of the passed 64-bit number by finding the highest set bit */
+static guint
+gst_log2 (GstClockTime in)
+{
+  const guint64 b[] =
+      { 0x2, 0xC, 0xF0, 0xFF00, 0xFFFF0000, 0xFFFFFFFF00000000LL };
+  const guint64 S[] = { 1, 2, 4, 8, 16, 32 };
+  int i;
+
+  guint count = 0;
+  for (i = 5; i >= 0; i--) {
+    if (in & b[i]) {
+      in >>= S[i];
+      count |= S[i];
+    }
+  }
+
+  return count;
+}
+
+/**
+ * gst_calculate_linear_regression: (skip)
+ * @xy: Pairs of (x,y) values
+ * @temp: Temporary scratch space used by the function
+ * @n: number of (x,y) pairs
+ * @m_num: (out): numerator of calculated slope
+ * @m_denom: (out): denominator of calculated slope
+ * @b: (out): Offset at Y-axis
+ * @xbase: (out): Offset at X-axis
+ * @r_squared: (out): R-squared
+ *
+ * Calculates the linear regression of the values @xy and places the
+ * result in @m_num, @m_denom, @b and @xbase, representing the function
+ *   y(x) = m_num/m_denom * (x - xbase) + b
+ * that has the least-square distance from all points @x and @y.
+ *
+ * @r_squared will contain the remaining error.
+ *
+ * If @temp is not %NULL, it will be used as temporary space for the function,
+ * in which case the function works without any allocation at all. If @temp is
+ * %NULL, an allocation will take place. @temp should have at least the same
+ * amount of memory allocated as @xy, i.e. 2*n*sizeof(GstClockTime).
+ *
+ * > This function assumes (x,y) values with reasonable large differences
+ * > between them. It will not calculate the exact results if the differences
+ * > between neighbouring values are too small due to not being able to
+ * > represent sub-integer values during the calculations.
+ *
+ * Returns: %TRUE if the linear regression was successfully calculated
+ *
+ * Since: 1.12
+ */
+/* http://mathworld.wolfram.com/LeastSquaresFitting.html
+ * with SLAVE_LOCK
+ */
+gboolean
+gst_calculate_linear_regression (const GstClockTime * xy,
+    GstClockTime * temp, guint n,
+    GstClockTime * m_num, GstClockTime * m_denom,
+    GstClockTime * b, GstClockTime * xbase, gdouble * r_squared)
+{
+  const GstClockTime *x, *y;
+  GstClockTime *newx, *newy;
+  GstClockTime xmin, ymin, xbar, ybar, xbar4, ybar4;
+  GstClockTime xmax, ymax;
+  GstClockTimeDiff sxx, sxy, syy;
+  gint i, j;
+  gint pshift = 0;
+  gint max_bits;
+
+  g_return_val_if_fail (xy != NULL, FALSE);
+  g_return_val_if_fail (m_num != NULL, FALSE);
+  g_return_val_if_fail (m_denom != NULL, FALSE);
+  g_return_val_if_fail (b != NULL, FALSE);
+  g_return_val_if_fail (xbase != NULL, FALSE);
+  g_return_val_if_fail (r_squared != NULL, FALSE);
+
+  x = xy;
+  y = xy + 1;
+
+  xbar = ybar = sxx = syy = sxy = 0;
+
+  xmin = ymin = G_MAXUINT64;
+  xmax = ymax = 0;
+  for (i = j = 0; i < n; i++, j += 2) {
+    xmin = MIN (xmin, x[j]);
+    ymin = MIN (ymin, y[j]);
+
+    xmax = MAX (xmax, x[j]);
+    ymax = MAX (ymax, y[j]);
+  }
+
+  if (temp == NULL) {
+    /* Allocate up to 1kb on the stack, otherwise heap */
+    newx = n > 64 ? g_new (GstClockTime, 2 * n) : g_newa (GstClockTime, 2 * n);
+    newy = newx + 1;
+  } else {
+    newx = temp;
+    newy = temp + 1;
+  }
+
+  /* strip off unnecessary bits of precision */
+  for (i = j = 0; i < n; i++, j += 2) {
+    newx[j] = x[j] - xmin;
+    newy[j] = y[j] - ymin;
+  }
+
+#ifdef DEBUGGING_ENABLED
+  GST_CAT_DEBUG (GST_CAT_CLOCK, "reduced numbers:");
+  for (i = j = 0; i < n; i++, j += 2)
+    GST_CAT_DEBUG (GST_CAT_CLOCK,
+        "  %" G_GUINT64_FORMAT "  %" G_GUINT64_FORMAT, newx[j], newy[j]);
+#endif
+
+  /* have to do this precisely otherwise the results are pretty much useless.
+   * should guarantee that none of these accumulators can overflow */
+
+  /* quantities on the order of 1e10 to 1e13 -> 30-35 bits;
+   * window size a max of 2^10, so
+   this addition could end up around 2^45 or so -- ample headroom */
+  for (i = j = 0; i < n; i++, j += 2) {
+    /* Just in case assumptions about headroom prove false, let's check */
+    if ((newx[j] > 0 && G_MAXUINT64 - xbar <= newx[j]) ||
+        (newy[j] > 0 && G_MAXUINT64 - ybar <= newy[j])) {
+      GST_CAT_WARNING (GST_CAT_CLOCK,
+          "Regression overflowed in clock slaving! xbar %"
+          G_GUINT64_FORMAT " newx[j] %" G_GUINT64_FORMAT " ybar %"
+          G_GUINT64_FORMAT " newy[j] %" G_GUINT64_FORMAT, xbar, newx[j], ybar,
+          newy[j]);
+      if (temp == NULL && n > 64)
+        g_free (newx);
+      return FALSE;
+    }
+
+    xbar += newx[j];
+    ybar += newy[j];
+  }
+  xbar /= n;
+  ybar /= n;
+
+  /* multiplying directly would give quantities on the order of 1e20-1e26 ->
+   * 60 bits to 70 bits times the window size that's 80 which is too much.
+   * Instead we (1) subtract off the xbar*ybar in the loop instead of after,
+   * to avoid accumulation; (2) shift off some estimated number of bits from
+   * each multiplicand to limit the expected ceiling. For strange
+   * distributions of input values, things can still overflow, in which
+   * case we drop precision and retry - at most a few times, in practice rarely
+   */
+
+  /* Guess how many bits we might need for the usual distribution of input,
+   * with a fallback loop that drops precision if things go pear-shaped */
+  max_bits = gst_log2 (MAX (xmax - xmin, ymax - ymin)) * 7 / 8 + gst_log2 (n);
+  if (max_bits > 64)
+    pshift = max_bits - 64;
+
+  i = 0;
+  do {
+#ifdef DEBUGGING_ENABLED
+    GST_CAT_DEBUG (GST_CAT_CLOCK,
+        "Restarting regression with precision shift %u", pshift);
+#endif
+
+    xbar4 = xbar >> pshift;
+    ybar4 = ybar >> pshift;
+    sxx = syy = sxy = 0;
+    for (i = j = 0; i < n; i++, j += 2) {
+      GstClockTime newx4, newy4;
+      GstClockTimeDiff tmp;
+
+      newx4 = newx[j] >> pshift;
+      newy4 = newy[j] >> pshift;
+
+      tmp = (newx4 + xbar4) * (newx4 - xbar4);
+      if (G_UNLIKELY (tmp > 0 && sxx > 0 && (G_MAXINT64 - sxx <= tmp))) {
+        do {
+          /* Drop some precision and restart */
+          pshift++;
+          sxx /= 4;
+          tmp /= 4;
+        } while (G_MAXINT64 - sxx <= tmp);
+        break;
+      } else if (G_UNLIKELY (tmp < 0 && sxx < 0 && (G_MININT64 - sxx >= tmp))) {
+        do {
+          /* Drop some precision and restart */
+          pshift++;
+          sxx /= 4;
+          tmp /= 4;
+        } while (G_MININT64 - sxx >= tmp);
+        break;
+      }
+      sxx += tmp;
+
+      tmp = newy4 * newy4 - ybar4 * ybar4;
+      if (G_UNLIKELY (tmp > 0 && syy > 0 && (G_MAXINT64 - syy <= tmp))) {
+        do {
+          pshift++;
+          syy /= 4;
+          tmp /= 4;
+        } while (G_MAXINT64 - syy <= tmp);
+        break;
+      } else if (G_UNLIKELY (tmp < 0 && syy < 0 && (G_MININT64 - syy >= tmp))) {
+        do {
+          pshift++;
+          syy /= 4;
+          tmp /= 4;
+        } while (G_MININT64 - syy >= tmp);
+        break;
+      }
+      syy += tmp;
+
+      tmp = newx4 * newy4 - xbar4 * ybar4;
+      if (G_UNLIKELY (tmp > 0 && sxy > 0 && (G_MAXINT64 - sxy <= tmp))) {
+        do {
+          pshift++;
+          sxy /= 4;
+          tmp /= 4;
+        } while (G_MAXINT64 - sxy <= tmp);
+        break;
+      } else if (G_UNLIKELY (tmp < 0 && sxy < 0 && (G_MININT64 - sxy >= tmp))) {
+        do {
+          pshift++;
+          sxy /= 4;
+          tmp /= 4;
+        } while (G_MININT64 - sxy >= tmp);
+        break;
+      }
+      sxy += tmp;
+    }
+  } while (i < n);
+
+  if (G_UNLIKELY (sxx == 0))
+    goto invalid;
+
+  *m_num = sxy;
+  *m_denom = sxx;
+  *b = (ymin + ybar) - gst_util_uint64_scale_round (xbar, *m_num, *m_denom);
+  /* Report base starting from the most recent observation */
+  *xbase = xmax;
+  *b += gst_util_uint64_scale_round (xmax - xmin, *m_num, *m_denom);
+
+  *r_squared = ((double) sxy * (double) sxy) / ((double) sxx * (double) syy);
+
+#ifdef DEBUGGING_ENABLED
+  GST_CAT_DEBUG (GST_CAT_CLOCK, "  m      = %g", ((double) *m_num) / *m_denom);
+  GST_CAT_DEBUG (GST_CAT_CLOCK, "  b      = %" G_GUINT64_FORMAT, *b);
+  GST_CAT_DEBUG (GST_CAT_CLOCK, "  xbase  = %" G_GUINT64_FORMAT, *xbase);
+  GST_CAT_DEBUG (GST_CAT_CLOCK, "  r2     = %g", *r_squared);
+#endif
+
+  if (temp == NULL && n > 64)
+    g_free (newx);
+
+  return TRUE;
+
+invalid:
+  {
+    GST_CAT_DEBUG (GST_CAT_CLOCK, "sxx == 0, regression failed");
+    if (temp == NULL && n > 64)
+      g_free (newx);
+    return FALSE;
+  }
 }

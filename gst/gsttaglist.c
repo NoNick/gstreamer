@@ -21,6 +21,7 @@
 
 /**
  * SECTION:gsttaglist
+ * @title: GstTagList
  * @short_description: List of tags and values used to describe media metadata
  *
  * List of tags and values used to describe media metadata.
@@ -509,7 +510,7 @@ gst_tag_register (const gchar * name, GstTagFlag flag, GType type,
   g_return_if_fail (blurb != NULL);
   g_return_if_fail (type != 0 && type != GST_TYPE_LIST);
 
-  return gst_tag_register_static (g_intern_string (name), flag, type,
+  gst_tag_register_static (g_intern_string (name), flag, type,
       g_intern_string (nick), g_intern_string (blurb), func);
 }
 
@@ -603,7 +604,7 @@ gst_tag_get_type (const gchar * tag)
  * Returns the human-readable name of this tag, You must not change or free
  * this string.
  *
- * Returns: the human-readable name of this tag
+ * Returns: (nullable): the human-readable name of this tag
  */
 const gchar *
 gst_tag_get_nick (const gchar * tag)
@@ -612,7 +613,11 @@ gst_tag_get_nick (const gchar * tag)
 
   g_return_val_if_fail (tag != NULL, NULL);
   info = gst_tag_lookup (tag);
-  g_return_val_if_fail (info != NULL, NULL);
+  if (!info) {
+    GST_WARNING ("Uknown tag: %s", tag);
+
+    return tag;
+  }
 
   return info->nick;
 }
@@ -624,7 +629,7 @@ gst_tag_get_nick (const gchar * tag)
  * Returns the human-readable description of this tag, You must not change or
  * free this string.
  *
- * Returns: the human-readable description of this tag
+ * Returns: (nullable): the human-readable description of this tag
  */
 const gchar *
 gst_tag_get_description (const gchar * tag)
@@ -1634,6 +1639,18 @@ TAG_MERGE_FUNCS (int, gint, TRUE);
  *              given list.
  */
 TAG_MERGE_FUNCS (uint, guint, TRUE);
+/**
+ * gst_tag_list_get_int64:
+ * @list: a #GstTagList to get the tag from
+ * @tag: tag to read out
+ * @value: (out): location for the result
+ *
+ * Copies the contents for the given tag into the value, merging multiple values
+ * into one if multiple values are associated with the tag.
+ *
+ * Returns: %TRUE, if a value was copied, %FALSE if the tag didn't exist in the
+ *              given list.
+ */
 /**
  * gst_tag_list_get_int64_index:
  * @list: a #GstTagList to get the tag from
